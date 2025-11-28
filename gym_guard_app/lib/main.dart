@@ -1,11 +1,16 @@
 import 'dart:math' as math;
+import 'dart:async';
 import 'dart:typed_data';
 import 'dart:io';
+import 'dart:convert'; // For JSON
 
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // FR-13
+import 'package:flutter_tts/flutter_tts.dart'; // FR-15
+import 'package:intl/intl.dart';
 
 List<CameraDescription> cameras = [];
 
@@ -40,35 +45,103 @@ class GymGuardApp extends StatelessWidget {
   }
 }
 
-// --- 1. MENU SCREEN ---
-class MenuScreen extends StatelessWidget {
+// --- 1. MAIN MENU & HISTORY ---
+class MenuScreen extends StatefulWidget {
   const MenuScreen({super.key});
+
+  @override
+  State<MenuScreen> createState() => _MenuScreenState();
+}
+
+class _MenuScreenState extends State<MenuScreen> {
+  List<Map<String, dynamic>> _history = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHistory();
+  }
+
+  Future<void> _loadHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String? historyJson = prefs.getString('workout_history');
+    if (historyJson != null) {
+      setState(() {
+        _history = List<Map<String, dynamic>>.from(json.decode(historyJson));
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text("GymGuard AI")),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(20.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             const Text(
-              "Select Workout",
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white),
+              "Start Workout",
+              textAlign: TextAlign.left,
+              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white),
             ),
-            const SizedBox(height: 40),
+            const SizedBox(height: 20),
             _buildMenuButton(context, "Squats", "Legs (ROM check)", Icons.accessibility_new, ExerciseType.squat),
-            const SizedBox(height: 20),
+            const SizedBox(height: 15),
             _buildMenuButton(context, "Overhead Press", "Shoulders (Elbow check)", Icons.fitness_center, ExerciseType.overheadPress),
-            const SizedBox(height: 20),
+            const SizedBox(height: 15),
             _buildMenuButton(context, "Bicep Curl", "Arms (Swing check)", Icons.sports_gymnastics, ExerciseType.bicepCurl),
+            
+            const SizedBox(height: 40),
+            const Text(
+              "Recent History (FR-13)",
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+            ),
+            const SizedBox(height: 10),
+            _buildHistoryList(),
           ],
         ),
       ),
     );
+  }
+
+  Widget _buildHistoryList() {
+    if (_history.isEmpty) {
+      return const Text("No workouts yet. Start training!", style: TextStyle(color: Colors.white54));
+    }
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: _history.length > 5 ? 5 : _history.length, // Show last 5
+      itemBuilder: (context, index) {
+        // Show newest first
+        final item = _history[_history.length - 1 - index];
+        return Card(
+          color: Colors.white10,
+          margin: const EdgeInsets.only(bottom: 10),
+          child: ListTile(
+            leading: Icon(_getIcon(item['type']), color: Colors.blueAccent),
+            title: Text(item['type'], style: const TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: Text("${item['date']}"),
+            trailing: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text("${item['reps']} Reps", style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold)),
+                Text("${item['mistakes']} Errors", style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  IconData _getIcon(String type) {
+    if (type.contains("Squat")) return Icons.accessibility_new;
+    if (type.contains("Press")) return Icons.fitness_center;
+    return Icons.sports_gymnastics;
   }
 
   Widget _buildMenuButton(BuildContext context, String title, String subtitle, IconData icon, ExerciseType type) {
@@ -78,25 +151,26 @@ class MenuScreen extends StatelessWidget {
         backgroundColor: Colors.blueGrey[900],
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15), side: const BorderSide(color: Colors.blueAccent)),
       ),
-      onPressed: () {
-        Navigator.push(
+      onPressed: () async {
+        await Navigator.push(
           context,
           MaterialPageRoute(builder: (context) => WorkoutScreen(exerciseType: type)),
         );
+        _loadHistory(); // Reload after coming back
       },
       child: Row(
         children: [
-          Icon(icon, size: 40, color: Colors.blueAccent),
+          Icon(icon, size: 36, color: Colors.blueAccent),
           const SizedBox(width: 20),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
-              Text(subtitle, style: const TextStyle(fontSize: 14, color: Colors.white70)),
+              Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
+              Text(subtitle, style: const TextStyle(fontSize: 12, color: Colors.white70)),
             ],
           ),
           const Spacer(),
-          const Icon(Icons.arrow_forward_ios, color: Colors.white54),
+          const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.white54),
         ],
       ),
     );
@@ -118,20 +192,22 @@ class WorkoutScreen extends StatefulWidget {
 class _WorkoutScreenState extends State<WorkoutScreen> with WidgetsBindingObserver {
   CameraController? _controller;
   PoseDetector? _poseDetector;
+  FlutterTts flutterTts = FlutterTts(); // FR-15
   bool _isDetecting = false;
   bool _isPaused = false;
+  int _cameraIndex = 1; // Default to front (1) if available
   
-  // Stats
+  // Logic
   int _reps = 0;
   int _mistakes = 0;
   String _feedback = "Get Ready";
   Color _feedbackColor = Colors.white;
-  
-  // Logic State
   String _stage = "start"; 
-  double _minAngle = 180.0; // For Squat depth
-  double _maxShoulderMove = 0.0; // For Curl swinging
+  double _minAngle = 180.0;
   double _startShoulderX = 0.0;
+  
+  // Throttle TTS
+  DateTime _lastSpeech = DateTime.now();
 
   CustomPaint? _customPaint;
 
@@ -140,21 +216,45 @@ class _WorkoutScreenState extends State<WorkoutScreen> with WidgetsBindingObserv
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initializeCamera();
+    _initTTS();
     _poseDetector = PoseDetector(options: PoseDetectorOptions(mode: PoseDetectionMode.stream));
+  }
+
+  Future<void> _initTTS() async {
+    await flutterTts.setLanguage("en-US");
+    await flutterTts.setSpeechRate(0.5); // Slower for clarity
+  }
+
+  Future<void> _speak(String text) async {
+    // Speak only every 2 seconds to avoid spam
+    if (DateTime.now().difference(_lastSpeech).inSeconds < 2) return;
+    _lastSpeech = DateTime.now();
+    await flutterTts.speak(text);
   }
 
   Future<void> _initializeCamera() async {
     if (cameras.isEmpty) return;
-    CameraDescription description = cameras.firstWhere(
-      (c) => c.lensDirection == CameraLensDirection.front,
-      orElse: () => cameras.first,
-    );
+    
+    // Find index of front camera if possible for start
+    int initialIndex = cameras.indexWhere((c) => c.lensDirection == CameraLensDirection.front);
+    if (initialIndex != -1) _cameraIndex = initialIndex;
+    else _cameraIndex = 0;
+
+    await _startCamera(_cameraIndex);
+  }
+
+  Future<void> _startCamera(int index) async {
+    if (_controller != null) {
+      await _controller!.dispose();
+    }
+    
     _controller = CameraController(
-      description,
+      cameras[index],
       ResolutionPreset.low,
       enableAudio: false,
       imageFormatGroup: Platform.isAndroid ? ImageFormatGroup.nv21 : ImageFormatGroup.bgra8888,
     );
+
     try {
       await _controller!.initialize();
       if (!mounted) return;
@@ -163,6 +263,14 @@ class _WorkoutScreenState extends State<WorkoutScreen> with WidgetsBindingObserv
     } catch (e) {
       debugPrint("Camera error: $e");
     }
+  }
+
+  // FR-12: Switch Camera
+  void _switchCamera() {
+    if (cameras.length < 2) return;
+    int newIndex = (_cameraIndex + 1) % cameras.length;
+    _cameraIndex = newIndex;
+    _startCamera(newIndex);
   }
 
   Future<void> _processCameraImage(CameraImage image) async {
@@ -202,7 +310,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> with WidgetsBindingObserv
     }
   }
 
-  // --- LOGIC 1: SQUAT (Check Depth/ROM) ---
+  // --- ANALYSIS WITH VOICE (FR-15) ---
+  
   void _analyzeSquat(Pose pose) {
     final hip = pose.landmarks[PoseLandmarkType.leftHip];
     final knee = pose.landmarks[PoseLandmarkType.leftKnee];
@@ -212,7 +321,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> with WidgetsBindingObserv
 
     double angle = _calculateAngle(hip, knee, ankle);
     
-    // Track depth
     if (_stage == "down" && angle < _minAngle) {
       _minAngle = angle;
     }
@@ -221,12 +329,14 @@ class _WorkoutScreenState extends State<WorkoutScreen> with WidgetsBindingObserv
       if (_stage == "down") {
         if (_minAngle < 90) {
           setState(() => _reps++);
-          _feedback = "GOOD SQUAT!";
+          _feedback = "GOOD!";
           _feedbackColor = Colors.greenAccent;
+          _speak("Good"); // Voice
         } else {
           setState(() => _mistakes++);
-          _feedback = "TOO SHALLOW!"; // Error: Bad ROM
+          _feedback = "TOO SHALLOW!";
           _feedbackColor = Colors.redAccent;
+          _speak("Lower next time"); // Voice warning
         }
       }
       _stage = "up";
@@ -246,66 +356,45 @@ class _WorkoutScreenState extends State<WorkoutScreen> with WidgetsBindingObserv
     }
   }
 
-  // --- LOGIC 2: OVERHEAD PRESS (Check Elbow Flare) ---
   void _analyzeOverheadPress(Pose pose) {
     final shoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
     final elbow = pose.landmarks[PoseLandmarkType.leftElbow];
     final wrist = pose.landmarks[PoseLandmarkType.leftWrist];
-    final hip = pose.landmarks[PoseLandmarkType.leftHip]; // For vertical reference
+    if (shoulder == null || elbow == null || wrist == null) return;
 
-    if (shoulder == null || elbow == null || wrist == null || hip == null) return;
+    double elbowAngle = _calculateAngle(shoulder, elbow, wrist);
 
-    // Angle 1: Arm extension (Shoulder-Elbow-Wrist)
-    double extensionAngle = _calculateAngle(shoulder, elbow, wrist);
-    
-    // Angle 2: Elbow Flare (Hip-Shoulder-Elbow) - roughly
-    // Ideally we want elbows somewhat tucked, not 90 degrees out constantly, 
-    // but for simple logic we check full extension.
-
-    if (extensionAngle > 160 && wrist.y < shoulder.y) {
-      // Arms up
+    if (elbowAngle > 160 && wrist.y < shoulder.y) {
       if (_stage == "down") {
         setState(() => _reps++);
-        _feedback = "STRONG PRESS!";
+        _feedback = "GOOD!";
         _feedbackColor = Colors.greenAccent;
+        _speak("Good press");
       }
       _stage = "up";
-    } else if (extensionAngle < 90 && wrist.y > (shoulder.y - 100)) {
-      // Arms down
+    } else if (elbowAngle < 90 && wrist.y > (shoulder.y - 100)) {
       _stage = "down";
       _feedback = "PUSH UP!";
       _feedbackColor = Colors.blueAccent;
-    } else {
-      // FR-11 Check: If elbows drop too low or weird angle?
-      // Simple check: keep wrist above elbow
-      if (wrist.y > elbow.y) {
-         _feedback = "WATCH ELBOWS!";
-         _feedbackColor = Colors.orangeAccent;
-      }
     }
   }
 
-  // --- LOGIC 3: BICEP CURL (Check Swinging/Cheating) ---
   void _analyzeBicepCurl(Pose pose) {
     final shoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
     final elbow = pose.landmarks[PoseLandmarkType.leftElbow];
     final wrist = pose.landmarks[PoseLandmarkType.leftWrist];
-    
     if (shoulder == null || elbow == null || wrist == null) return;
 
     double angle = _calculateAngle(shoulder, elbow, wrist);
 
-    // Track shoulder movement (Cheating detection)
     if (_stage == "down") {
-       _startShoulderX = shoulder.x; // Remember start pos
+       _startShoulderX = shoulder.x; 
     }
-    
-    // If shoulder moves too much forward/back relative to body size -> swinging
-    double bodyScale = (shoulder.y - elbow.y).abs(); // Approx upper arm length
+    double bodyScale = (shoulder.y - elbow.y).abs();
     if (_stage == "up" && (shoulder.x - _startShoulderX).abs() > (bodyScale * 0.2)) {
        _feedback = "DON'T SWING!";
        _feedbackColor = Colors.redAccent;
-       // We don't count mistake immediately to avoid spam, but warn user
+       _speak("Do not swing"); // Voice Error
     }
 
     if (angle > 160) {
@@ -315,11 +404,12 @@ class _WorkoutScreenState extends State<WorkoutScreen> with WidgetsBindingObserv
     } else if (angle < 50) {
       if (_stage == "down") {
         if (_feedback == "DON'T SWING!") {
-           setState(() => _mistakes++); // Count cheat as mistake
+           setState(() => _mistakes++);
         } else {
            setState(() => _reps++);
-           _feedback = "GOOD CURL!";
+           _feedback = "GOOD!";
            _feedbackColor = Colors.greenAccent;
+           _speak("Nice");
         }
       }
       _stage = "up";
@@ -387,8 +477,35 @@ class _WorkoutScreenState extends State<WorkoutScreen> with WidgetsBindingObserv
     });
   }
 
-  void _finishWorkout() {
+  Future<void> _finishWorkout() async {
     _controller?.stopImageStream();
+    
+    // FR-13: Save History
+    final prefs = await SharedPreferences.getInstance();
+    final String? historyJson = prefs.getString('workout_history');
+    List<Map<String, dynamic>> history = [];
+    if (historyJson != null) {
+      history = List<Map<String, dynamic>>.from(json.decode(historyJson));
+    }
+    
+    // Add current session
+    String typeName = "";
+    switch(widget.exerciseType) {
+      case ExerciseType.squat: typeName = "Squats"; break;
+      case ExerciseType.overheadPress: typeName = "Overhead Press"; break;
+      case ExerciseType.bicepCurl: typeName = "Bicep Curl"; break;
+    }
+    
+    history.add({
+      'type': typeName,
+      'reps': _reps,
+      'mistakes': _mistakes,
+      'date': DateFormat('MMM d, HH:mm').format(DateTime.now()),
+    });
+    
+    await prefs.setString('workout_history', json.encode(history));
+
+    if (!mounted) return;
     Navigator.pushReplacement(
       context, 
       MaterialPageRoute(
@@ -406,6 +523,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with WidgetsBindingObserv
     WidgetsBinding.instance.removeObserver(this);
     _controller?.dispose();
     _poseDetector?.close();
+    flutterTts.stop();
     super.dispose();
   }
 
@@ -426,6 +544,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> with WidgetsBindingObserv
       appBar: AppBar(
         title: Text(title),
         actions: [
+          // FR-12: Camera Switcher
+          IconButton(
+            icon: const Icon(Icons.switch_camera),
+            onPressed: _switchCamera,
+          ),
           IconButton(
             icon: Icon(_isPaused ? Icons.play_arrow : Icons.pause),
             onPressed: _togglePause,

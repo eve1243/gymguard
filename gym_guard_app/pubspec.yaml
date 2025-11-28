@@ -10,17 +10,14 @@ dependencies:
   flutter:
     sdk: flutter
   
-  # FR-01: Работа с камерой
   camera: ^0.10.5+9
-  
-  # FR-02: Распознавание скелета от Google
   google_mlkit_pose_detection: ^0.12.0
-  
-  # Для математических расчетов (углы суставов)
   vector_math: ^2.1.4
-  
-  # Разрешения (на всякий случай)
   permission_handler: ^11.3.0
+  
+  shared_preferences: ^2.2.2  # history storage
+  flutter_tts: ^3.8.3         # voice feedback
+  intl: ^0.19.0               # date formatting
 
 dev_dependencies:
   flutter_test:
