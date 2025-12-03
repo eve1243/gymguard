@@ -1,18 +1,30 @@
-import 'dart:math' as math;
-import 'dart:typed_data';
-import 'dart:io';
-import 'dart:convert';
+// GymGuard - AI-Powered Fitness Form Analyzer
+// 
+// This app uses real-time pose detection to analyze workout form and provide
+// instant feedback on exercise technique. It supports multiple exercises:
+// - Squats (with depth and tempo validation)
+// - Push-Ups (with orientation detection)
+// - Overhead Press (with full extension tracking)
+// - Bicep Curls (with anti-cheat swing detection)
+
+import 'dart:math' as math;        // For angle calculations
+import 'dart:typed_data';          // For camera image byte handling
+import 'dart:io';                  // For platform detection (Android/iOS)
+import 'dart:convert';             // For JSON encoding/decoding workout history
 
 import 'package:flutter/material.dart';
-import 'package:camera/camera.dart';
-import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
+import 'package:camera/camera.dart';                            // Camera access
+import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart'; // AI pose detection
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter_tts/flutter_tts.dart';
-import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';   // Local storage for workout history
+import 'package:flutter_tts/flutter_tts.dart';                 // Text-to-speech for voice feedback
+import 'package:intl/intl.dart';                               // Date formatting
 
+// Global list of available cameras (front/back)
 List<CameraDescription> cameras = [];
 
+/// App entry point
+/// Initializes camera and launches the app
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
@@ -23,6 +35,8 @@ Future<void> main() async {
   runApp(const GymGuardApp());
 }
 
+/// Root app widget
+/// Sets up dark theme and navigation
 class GymGuardApp extends StatelessWidget {
   const GymGuardApp({super.key});
 
@@ -32,7 +46,7 @@ class GymGuardApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'GymGuard',
       theme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: const Color(0xFF121212),
+        scaffoldBackgroundColor: const Color(0xFF121212),  // Dark background
         primaryColor: Colors.blueAccent,
         appBarTheme: const AppBarTheme(
           backgroundColor: Colors.transparent,
@@ -44,7 +58,17 @@ class GymGuardApp extends StatelessWidget {
   }
 }
 
-// --- 1. MENU SCREEN ---
+// ============================================================================
+// SCREEN 1: MENU SCREEN
+// ============================================================================
+// Main menu for exercise selection and workout history display
+//
+// Features:
+// - 4 exercise selection buttons
+// - Recent workout history (last 5 sessions)
+// - Persistent storage using SharedPreferences
+// ============================================================================
+
 class MenuScreen extends StatefulWidget {
   const MenuScreen({super.key});
 
@@ -53,14 +77,16 @@ class MenuScreen extends StatefulWidget {
 }
 
 class _MenuScreenState extends State<MenuScreen> {
-  List<Map<String, dynamic>> _history = [];
+  List<Map<String, dynamic>> _history = [];  // Workout history from local storage
 
   @override
   void initState() {
     super.initState();
-    _loadHistory();
+    _loadHistory();  // Load saved workouts when screen opens
   }
 
+  /// Loads workout history from SharedPreferences (local storage)
+  /// History is stored as JSON array
   Future<void> _loadHistory() async {
     final prefs = await SharedPreferences.getInstance();
     final String? historyJson = prefs.getString('workout_history');
@@ -178,9 +204,32 @@ class _MenuScreenState extends State<MenuScreen> {
   }
 }
 
+/// Enum to identify different exercise types
+/// Used to route to correct analysis function
 enum ExerciseType { squat, pushUp, overheadPress, bicepCurl }
 
-// --- 2. WORKOUT SCREEN ---
+// ============================================================================
+// SCREEN 2: WORKOUT SCREEN
+// ============================================================================
+// Live camera view with real-time pose analysis
+//
+// Architecture:
+// 1. Camera streams frames (~30 FPS)
+// 2. Each frame is processed by ML Kit Pose Detector (AI)
+// 3. Pose landmarks (33 body points) are extracted
+// 4. Exercise-specific analyzer validates form
+// 5. Skeleton overlay drawn on camera view
+// 6. Real-time feedback displayed (visual + audio)
+//
+// Key Features:
+// - State machine for rep counting (up/down states)
+// - Form validation (depth, tempo, orientation)
+// - Mistake tracking (errors vs successful reps)
+// - Voice feedback (Text-to-Speech)
+// - Pause/Resume functionality
+// - Camera switching (front/back)
+// ============================================================================
+
 class WorkoutScreen extends StatefulWidget {
   final ExerciseType exerciseType;
 
@@ -191,27 +240,34 @@ class WorkoutScreen extends StatefulWidget {
 }
 
 class _WorkoutScreenState extends State<WorkoutScreen> with WidgetsBindingObserver {
-  CameraController? _controller;
-  PoseDetector? _poseDetector;
-  FlutterTts flutterTts = FlutterTts();
-  bool _isDetecting = false;
-  bool _isPaused = false;
-  int _cameraIndex = 1;
+  // Camera and AI components
+  CameraController? _controller;      // Manages camera hardware
+  PoseDetector? _poseDetector;        // ML Kit AI model for pose detection
+  FlutterTts flutterTts = FlutterTts();  // Text-to-speech for voice feedback
   
-  // Logic Variables
-  int _reps = 0;
-  int _mistakes = 0;
-  String _feedback = "Get Ready";
-  Color _feedbackColor = Colors.white;
-  String _stage = "start"; 
-  double _minAngle = 180.0;
-  double _startShoulderX = 0.0;
-  DateTime _repStartTime = DateTime.now();
+  // Control flags
+  bool _isDetecting = false;  // Prevents concurrent frame processing
+  bool _isPaused = false;     // Workout paused state
+  int _cameraIndex = 1;       // Current camera (0=back, 1=front typically)
   
-  // Logic helpers
-  DateTime _lastRepTime = DateTime.now();
-  DateTime _lastSpeech = DateTime.now();
-  CustomPaint? _customPaint;
+  // ========== REP COUNTING AND FORM VALIDATION ==========
+  int _reps = 0;              // Count of successful reps
+  int _mistakes = 0;          // Count of form errors
+  String _feedback = "Get Ready";  // Current status message shown to user
+  Color _feedbackColor = Colors.white;  // Color coding: green=good, red=error, orange=warning
+  
+  // ========== STATE MACHINE VARIABLES ==========
+  String _stage = "start";    // Exercise phase: "up", "down", or "start"
+  double _minAngle = 180.0;   // Minimum angle reached during squat (for depth check)
+  double _startShoulderX = 0.0;  // Starting shoulder position (bicep curl swing detection)
+  DateTime _repStartTime = DateTime.now();  // When current rep started (for tempo check)
+  
+  // ========== TIMING AND THROTTLING ==========
+  DateTime _lastRepTime = DateTime.now();   // Prevents double-counting same rep
+  DateTime _lastSpeech = DateTime.now();    // Prevents voice feedback spam
+  
+  // ========== VISUALIZATION ==========
+  CustomPaint? _customPaint;  // Skeleton overlay drawn on camera feed
 
   @override
   void initState() {
@@ -222,11 +278,15 @@ class _WorkoutScreenState extends State<WorkoutScreen> with WidgetsBindingObserv
     _poseDetector = PoseDetector(options: PoseDetectorOptions(mode: PoseDetectionMode.stream));
   }
 
+  /// Text-to-speech configuration
+  /// Speed set to 0.5 for clear pronunciation
   Future<void> _initTTS() async {
     await flutterTts.setLanguage("en-US");
     await flutterTts.setSpeechRate(0.5);
   }
 
+  /// Speaks feedback text with throttling
+  /// Prevents voice spam (minimum 2 seconds between messages)
   Future<void> _speak(String text) async {
     if (DateTime.now().difference(_lastSpeech).inSeconds < 2) return;
     _lastSpeech = DateTime.now();
@@ -266,10 +326,22 @@ class _WorkoutScreenState extends State<WorkoutScreen> with WidgetsBindingObserv
     _startCamera(newIndex);
   }
 
+  /// Main image processing pipeline
+  /// Called for every camera frame (~30 FPS)
+  /// 
+  /// Flow:
+  /// 1. Throttle check (skip if already processing)
+  /// 2. Convert CameraImage to ML Kit format
+  /// 3. Run AI pose detection (gets 33 body landmarks)
+  /// 4. Route to exercise-specific analyzer
+  /// 5. Draw skeleton overlay
+  /// 6. Update UI
   Future<void> _processCameraImage(CameraImage image) async {
+    // Skip if already processing a frame, paused, or detector not ready
     if (_isDetecting || _poseDetector == null || _isPaused) return;
-    _isDetecting = true;
+    _isDetecting = true;  // Set lock to prevent concurrent processing
 
+    // Convert camera format to ML Kit format
     final inputImage = _inputImageFromCameraImage(image);
     if (inputImage == null) {
       _isDetecting = false;
@@ -277,10 +349,14 @@ class _WorkoutScreenState extends State<WorkoutScreen> with WidgetsBindingObserv
     }
 
     try {
+      // Run AI pose detection - returns list of detected poses
+      // Usually 0-1 person detected per frame
       final poses = await _poseDetector!.processImage(inputImage);
+      
       if (poses.isNotEmpty) {
-        final pose = poses.first;
+        final pose = poses.first;  // Use first detected person
         
+        // Route to correct exercise analyzer based on selected exercise type
         switch (widget.exerciseType) {
           case ExerciseType.squat: _analyzeSquat(pose); break;
           case ExerciseType.pushUp: _analyzePushUp(pose); break;
@@ -288,54 +364,93 @@ class _WorkoutScreenState extends State<WorkoutScreen> with WidgetsBindingObserv
           case ExerciseType.bicepCurl: _analyzeBicepCurl(pose); break;
         }
         
+        // Create skeleton overlay painter if screen is still mounted
         if (mounted) {
-          final painter = PosePainter(pose, image.width.toDouble(), image.height.toDouble(), _controller!.description.lensDirection);
+          final painter = PosePainter(
+            pose, 
+            image.width.toDouble(), 
+            image.height.toDouble(), 
+            _controller!.description.lensDirection
+          );
           _customPaint = CustomPaint(painter: painter);
         }
       } else {
+        // No person detected in frame
         _customPaint = null;
         _feedback = "Not visible";
       }
     } catch (e) {
       debugPrint("Error: $e");
     } finally {
+      // Always unlock and update UI, even if error occurred
       if (mounted) setState(() {});
       _isDetecting = false;
     }
   }
 
-  // --- 1. SQUAT ---
+  // ============================================================================
+  // EXERCISE ANALYZERS
+  // ============================================================================
+  // Each analyzer implements exercise-specific form validation logic
+  // using a state machine pattern (up/down states)
+  // ============================================================================
+
+  // --- SQUAT ANALYZER ---
+  /// Analyzes squat form with depth and tempo validation
+  /// 
+  /// Quality checks:
+  /// - Depth: Knee angle must reach < 90° (parallel or below)
+  /// - Tempo: Must take > 1.5 seconds (prevents bouncing)
+  /// 
+  /// State machine:
+  /// - "up" state: Knees extended (angle > 160°)
+  /// - "down" state: Descending (angle < 140°)
+  /// - Tracks minimum angle reached during descent
   void _analyzeSquat(Pose pose) {
+    // Get left leg landmarks (hip-knee-ankle)
     final hip = pose.landmarks[PoseLandmarkType.leftHip];
     final knee = pose.landmarks[PoseLandmarkType.leftKnee];
     final ankle = pose.landmarks[PoseLandmarkType.leftAnkle];
+    
+    // Validate landmarks exist and ML Kit is confident
     if (hip == null || knee == null || ankle == null) return;
     if (hip.likelihood < 0.5 || knee.likelihood < 0.5) return;
 
+    // Calculate knee angle (180° = standing, 90° = parallel squat)
     double angle = _calculateAngle(hip, knee, ankle);
     
+    // Track minimum angle reached during descent (for depth check)
     if (_stage == "down" && angle < _minAngle) {
       _minAngle = angle;
     }
 
+    // STANDING POSITION: Knees extended (angle > 160°)
     if (angle > 160) {
       if (_stage == "down") {
+        // Rep completed! Now validate quality...
+        
+        // Debounce: Prevent double-counting within 1 second
         if (DateTime.now().difference(_lastRepTime).inSeconds < 1) return;
         _lastRepTime = DateTime.now();
 
+        // Check tempo: Should take > 1.5 seconds
         final duration = DateTime.now().difference(_repStartTime);
         if (duration.inMilliseconds < 1500) { 
+           // TOO FAST - rushing leads to injury
            setState(() => _mistakes++);
            _feedback = "TOO FAST!";
            _feedbackColor = Colors.redAccent;
            _speak("Slow down");
         } 
+        // Check depth: Did we reach parallel (< 90°)?
         else if (_minAngle < 90) {
+          // PERFECT REP!
           setState(() => _reps++);
           _feedback = "PERFECT!";
           _feedbackColor = Colors.greenAccent;
           _speak("Good");
         } else {
+          // TOO SHALLOW - didn't reach parallel
           setState(() => _mistakes++);
           _feedback = "TOO SHALLOW!";
           _feedbackColor = Colors.redAccent;
@@ -343,24 +458,37 @@ class _WorkoutScreenState extends State<WorkoutScreen> with WidgetsBindingObserv
         }
       }
       _stage = "up";
-      _minAngle = 180.0;
+      _minAngle = 180.0;  // Reset for next rep
+      
+    // DESCENDING: Knees bending (angle < 140°)
     } else if (angle < 140) {
       if (_stage == "up") {
+        // Just started descending - begin new rep
         _stage = "down";
         _minAngle = angle;
-        _repStartTime = DateTime.now(); 
+        _repStartTime = DateTime.now();  // Start timer for tempo check
       }
+      // Provide real-time feedback during descent
       if (angle < 90) {
-        _feedback = "UP!";
+        _feedback = "UP!";  // At bottom, tell user to push up
         _feedbackColor = Colors.blueAccent;
       } else {
-        _feedback = "LOWER...";
+        _feedback = "LOWER...";  // Still descending
         _feedbackColor = Colors.orangeAccent;
       }
     }
   }
 
-  // --- 2. PUSH-UP (Smart Orientation Check) ---
+  // --- PUSH-UP ANALYZER ---
+  /// Analyzes push-up form with smart orientation detection
+  /// 
+  /// Unique challenge: Must distinguish between:
+  /// - Horizontal position (push-up) - VALID
+  /// - Vertical position (standing) - INVALID
+  /// 
+  /// Solution: Compare vertical vs horizontal distance between shoulder and hip
+  /// - If vertical distance > horizontal distance = standing (reject)
+  /// - If horizontal distance > vertical distance = push-up position (accept)
   void _analyzePushUp(Pose pose) {
     final shoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
     final hip = pose.landmarks[PoseLandmarkType.leftHip];
@@ -369,23 +497,29 @@ class _WorkoutScreenState extends State<WorkoutScreen> with WidgetsBindingObserv
 
     if (shoulder == null || hip == null || elbow == null || wrist == null) return;
 
-    // ORIENTATION CHECK: Are we horizontal?
-    double diffY = (shoulder.y - hip.y).abs();
-    double diffX = (shoulder.x - hip.x).abs();
+    // ========== ORIENTATION CHECK ==========
+    // Calculate distances between shoulder and hip
+    double diffY = (shoulder.y - hip.y).abs();  // Vertical distance
+    double diffX = (shoulder.x - hip.x).abs();  // Horizontal distance
 
-    // If Height difference is bigger than Width difference -> We are STANDING (Vertical)
-    // We only want to count if we are Horizontal (Push-up position)
+    // If vertical distance > horizontal distance, person is standing (vertical)
+    // We only count push-ups when person is horizontal (on the floor)
     if (diffY > diffX) {
-       _feedback = "GET ON FLOOR"; // Tell user to lie down
+       _feedback = "GET ON FLOOR";  // Tell user to get into push-up position
        _feedbackColor = Colors.orangeAccent;
-       return; // Stop analysis
+       return;  // Stop analysis - not in correct position
     }
 
-    // Now analyze Push-Up
+    // ========== PUSH-UP ANALYSIS (Person is horizontal) ==========
+    // Calculate arm angle (shoulder-elbow-wrist)
     double armAngle = _calculateAngle(shoulder, elbow, wrist);
 
-    if (armAngle > 160) { // Arms extended (Top)
+    // TOP POSITION: Arms extended (angle > 160°)
+    if (armAngle > 160) {
       if (_stage == "down") {
+        // Rep completed!
+        
+        // Debounce to prevent double-counting
         if (DateTime.now().difference(_lastRepTime).inSeconds < 1) return;
         _lastRepTime = DateTime.now();
 
@@ -395,10 +529,14 @@ class _WorkoutScreenState extends State<WorkoutScreen> with WidgetsBindingObserv
         _speak("Good");
       }
       _stage = "up";
-    } else if (armAngle < 90) { // Chest down (Bottom)
+      
+    // BOTTOM POSITION: Chest down (angle < 90°)
+    } else if (armAngle < 90) {
       _stage = "down";
       _feedback = "PUSH UP!";
       _feedbackColor = Colors.blueAccent;
+      
+    // MIDDLE POSITION: Descending
     } else if (armAngle < 140 && _stage == "up") {
       _feedback = "LOWER...";
       _feedbackColor = Colors.orangeAccent;
@@ -429,37 +567,63 @@ class _WorkoutScreenState extends State<WorkoutScreen> with WidgetsBindingObserv
     }
   }
 
-  // --- 4. BICEP CURL (User Version) ---
+  // --- BICEP CURL ANALYZER ---
+  /// Analyzes bicep curl form with anti-cheat swing detection
+  /// 
+  /// Common cheating pattern: Using momentum by swinging shoulders forward
+  /// 
+  /// Solution: Track shoulder X-position
+  /// - Record starting shoulder position when arm is down
+  /// - Monitor shoulder movement during curl
+  /// - If shoulder moves > 20% of body scale = SWING (cheating)
+  /// - Flag as mistake instead of valid rep
   void _analyzeBicepCurl(Pose pose) {
     final shoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
     final elbow = pose.landmarks[PoseLandmarkType.leftElbow];
     final wrist = pose.landmarks[PoseLandmarkType.leftWrist];
     if (shoulder == null || elbow == null || wrist == null) return;
 
+    // Calculate arm angle (shoulder-elbow-wrist)
     double angle = _calculateAngle(shoulder, elbow, wrist);
 
+    // ========== SWING DETECTION ==========
+    // Record starting shoulder position when arm is extended
     if (_stage == "down") {
        _startShoulderX = shoulder.x; 
     }
+    
+    // Calculate body scale for relative movement detection
+    // Using shoulder-to-elbow distance as reference
     double bodyScale = (shoulder.y - elbow.y).abs();
+    
+    // Check if shoulder has moved significantly (> 20% of body scale)
+    // This indicates swinging/using momentum
     if (_stage == "up" && (shoulder.x - _startShoulderX).abs() > (bodyScale * 0.2)) {
        _feedback = "DON'T SWING!";
        _feedbackColor = Colors.redAccent;
        _speak("Do not swing");
     }
 
+    // ========== REP COUNTING ==========
+    // EXTENDED POSITION: Arm straight (angle > 160°)
     if (angle > 160) {
       _stage = "down";
       _feedback = "CURL UP!";
       _feedbackColor = Colors.blueAccent;
+      
+    // CURLED POSITION: Arm fully bent (angle < 50°)
     } else if (angle < 50) {
       if (_stage == "down") {
+        // Debounce
         if (DateTime.now().difference(_lastRepTime).inSeconds < 1) return;
         _lastRepTime = DateTime.now();
 
+        // Check if we detected swinging
         if (_feedback == "DON'T SWING!") {
+           // Cheated - count as mistake
            setState(() => _mistakes++);
         } else {
+           // Clean rep - count it!
            setState(() => _reps++);
            _feedback = "GOOD!";
            _feedbackColor = Colors.greenAccent;
@@ -470,12 +634,35 @@ class _WorkoutScreenState extends State<WorkoutScreen> with WidgetsBindingObserv
     }
   }
 
+  /// Calculates angle between three landmarks (geometric calculation)
+  /// 
+  /// Uses arctangent to find angle at the middle point
+  /// 
+  /// Example: For knee angle in a squat:
+  ///   first = hip
+  ///   mid = knee (the vertex where we measure angle)
+  ///   last = ankle
+  /// 
+  /// Returns: Angle in degrees (0-180°)
+  /// - 180° = fully extended (straight line)
+  /// - 90° = right angle
+  /// - 0° = fully bent (overlapping)
   double _calculateAngle(PoseLandmark first, PoseLandmark mid, PoseLandmark last) {
+    // Calculate angles of two vectors using atan2
+    // Vector 1: mid -> first
+    // Vector 2: mid -> last
     double radians = math.atan2(last.y - mid.y, last.x - mid.x) -
                      math.atan2(first.y - mid.y, first.x - mid.x);
+    
+    // Convert radians to degrees
     double degrees = radians * 180.0 / math.pi;
+    
+    // Take absolute value (we want interior angle, not direction)
     degrees = degrees.abs();
+    
+    // Normalize to 0-180° range
     if (degrees > 180.0) degrees = 360.0 - degrees;
+    
     return degrees;
   }
 
