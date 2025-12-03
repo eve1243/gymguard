@@ -126,6 +126,24 @@ Future<void> _loadHistory() async {
 - Displays: exercise name, date, reps, mistakes
 - Stored in JSON format using SharedPreferences
 
+**Example JSON structure:**
+```json
+[
+  {
+    "type": "Squats",
+    "reps": 15,
+    "mistakes": 2,
+    "date": "Dec 3, 14:30"
+  },
+  {
+    "type": "Push-Ups",
+    "reps": 20,
+    "mistakes": 1,
+    "date": "Dec 3, 15:00"
+  }
+]
+```
+
 ---
 
 ### 4. WorkoutScreen (Lines 183-684)
