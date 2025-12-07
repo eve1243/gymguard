@@ -1,136 +1,111 @@
-# GymGuard - Fitness Pose Detection App
+# Rehabilitation Assistant (GymGuard AI)
 
-Eine Flutter-App zur Echtzeit-Analyse von Fitnessübungen mittels KI-gestützter Pose-Erkennung.
+**Rehabilitation Assistant** (formerly GymGuard) is a cross-platform mobile application (Android/iOS) designed to act as an intelligent, real-time personal trainer.
 
-## ✅ Phase 1: Abgeschlossen
+Unlike standard fitness trackers, this app uses **Computer Vision (Google ML Kit)** to "watch" you exercise through your smartphone camera. It analyzes your biomechanics in real-time to count repetitions, correct posture, and ensure safe movement tempo—all processed locally on your device for maximum privacy.
 
-### Entwicklungsumgebung Setup
-- ✅ Flutter SDK (Version 3.38.2) installiert und konfiguriert
-- ✅ Visual Studio Code mit Flutter- und Dart-Extensions
-- ✅ Android SDK konfiguriert (Version 35.0.0)
-- ✅ Python 3.13.1 Umgebung mit virtuellem Environment (venv)
-- ✅ TensorFlow und OpenCV-Python installiert
+## 📱 Features
 
-**Hinweis zu MediaPipe:** MediaPipe unterstützt derzeit Python 3.13 nicht. Optionen:
-1. Python 3.12 oder niedriger verwenden für volle MediaPipe-Unterstützung
-2. Alternativ TensorFlow Lite Hub Modelle verwenden (MoveNet, PoseNet)
+* **Smart Exercise Analysis:**
+    * **Squats:** Checks for depth (Range of Motion) and safe tempo.
+    * **Push-Ups:** Smart detection that only counts when you are in a horizontal position.
+    * **Bicep Curls:** Prevents "swinging" and ensures controlled lifting speed.
+    * **Overhead Press:** Verifies full arm extension.
+* **Real-Time Feedback:** Visual skeleton overlay and Text-to-Speech audio guidance (e.g., "Slow down!", "Go lower").
+* **User Profiles:** Save your name, age, and weight locally.
+* **History:** Tracks your workout sessions automatically.
+* **Privacy First:** No video is ever uploaded to the cloud. Everything runs on-device (Edge AI).
 
-### Projekt Setup
-- ✅ Flutter-Projekt `gym_guard_app` erstellt
-- ✅ Notwendige Dependencies hinzugefügt:
-  - `camera`: Kamerazugriff
-  - `tflite_flutter`: TensorFlow Lite Integration
-  - `permission_handler`: Berechtigungsverwaltung
-- ✅ Android-Berechtigungen konfiguriert (Camera, Storage)
-- ✅ Basis-Kamera-Implementation (FR-01)
+---
 
-## 🚀 Phase 2: In Arbeit
+## 🛠️ Prerequisites
 
-### Pose-Estimation Implementation (FR-02)
+Before you start, make sure you have the following installed on your computer:
 
-#### Nächste Schritte:
+1.  **Flutter SDK:** [Download & Install Flutter](https://docs.flutter.dev/get-started/install)
+2.  **VS Code:** Recommended editor with the "Flutter" and "Dart" extensions installed.
+3.  **Android Studio:** Required to set up the Android Emulator.
+4.  **Git:** To clone this repository.
 
-1. **TensorFlow Lite Modell vorbereiten**
-   ```bash
-   # Im Python venv
-   cd path/to/project
-   .\venv\Scripts\Activate.ps1
-   ```
-   
-   Optionen für Pose-Detection Modelle:
-   - **MoveNet** (empfohlen): Schnell, genau, optimiert für mobile Geräte
-   - **PoseNet**: Leichtgewichtig, gut dokumentiert
-   - **BlazePose** (MediaPipe): Sehr genau, benötigt MediaPipe
+---
 
-2. **Modell in Flutter integrieren**
-   - .tflite Modelldatei in `assets/models/` platzieren
-   - `pubspec.yaml` aktualisieren um Assets einzubinden
-   - `PoseDetector` Klasse in `lib/pose_detector.dart` vervollständigen
+## 🚀 Getting Started
 
-3. **Pose-Visualisierung**
-   - `PosePainter` implementieren um Keypoints zu zeichnen
-   - Skelett-Linien zwischen Gelenken darstellen
-   - Echtzeit-Feedback anzeigen
+Follow these exact steps to set up the project on your local machine.
 
-## 📁 Projektstruktur
-
-```
-gymguard/
-├── gym_guard_app/          # Flutter App
-│   ├── lib/
-│   │   ├── main.dart       # Haupt-App mit Kamera-Integration
-│   │   └── pose_detector.dart  # Pose-Detection Logik
-│   ├── android/            # Android-spezifische Konfiguration
-│   └── assets/             # Zu erstellen für TFLite Modelle
-│       └── models/         # .tflite Dateien hier platzieren
-├── venv/                   # Python Virtual Environment
-└── python_scripts/         # Python-Skripte für Modelltraining (optional)
-```
-
-## 🛠️ App ausführen
-
-1. **Android-Gerät vorbereiten:**
-   - USB-Debugging aktivieren
-   - Gerät per USB verbinden
-
-2. **App starten:**
-   ```bash
-   cd gym_guard_app
-   flutter run
-   ```
-
-3. **Verfügbare Geräte prüfen:**
-   ```bash
-   flutter devices
-   ```
-
-## 📋 Anforderungen Status
-
-### Must-Requirements (Muss-Kriterien)
-- ✅ **FR-01**: Kamera-Schnittstelle implementiert
-- 🔄 **FR-02**: Pose-Estimation in Arbeit
-- ⏳ **FR-03**: Echtzeit-Feedback (Abhängig von FR-02)
-- ⏳ **FR-04**: Übungserkennung (Zukünftig)
-
-### Should-Requirements (Soll-Kriterien)
-- ⏳ Datenbank zur Speicherung von Trainingssessions
-- ⏳ Fortschrittsverfolgung
-- ⏳ Personalisierte Empfehlungen
-
-### Could-Requirements (Kann-Kriterien)
-- ⏳ Social Features
-- ⏳ Gamification
-- ⏳ Erweiterte Analysen
-
-## 🔧 Nützliche Befehle
+### 1. Clone the Repository
+Open your terminal (Command Prompt or PowerShell) and run:
 
 ```bash
-# Flutter
-flutter doctor              # System-Check
-flutter pub get            # Dependencies installieren
-flutter clean              # Build-Cache leeren
-flutter build apk          # Release APK erstellen
+git clone [https://github.com/Daniilsvirenko/rehabilitation-assistant.git](https://github.com/Daniilsvirenko/rehabilitation-assistant.git)
+cd rehabilitation-assistant
+2. Install Dependencies
+You do not need to install libraries manually. The pubspec.yaml file contains everything. Just run:
 
-# Python (in venv)
-.\venv\Scripts\Activate.ps1    # Virtual Environment aktivieren
-pip list                       # Installierte Pakete anzeigen
-python --version               # Python-Version prüfen
-```
+Bash
 
-## 📚 Ressourcen
+flutter pub get
+3. Set Up the Android Emulator (Critical Step!)
+Since this app uses the camera, you must configure the Android Emulator to use your laptop's webcam.
 
-- [Flutter Dokumentation](https://docs.flutter.dev/)
-- [TensorFlow Lite](https://www.tensorflow.org/lite)
-- [Camera Plugin](https://pub.dev/packages/camera)
-- [TFLite Flutter Plugin](https://pub.dev/packages/tflite_flutter)
-- [MoveNet Tutorial](https://www.tensorflow.org/lite/examples/pose_estimation/overview)
+Open Android Studio -> Device Manager.
 
-## ⚠️ Bekannte Probleme
+Click the Edit (Pencil) icon on your virtual device (e.g., Medium Phone API 35).
 
-1. **MediaPipe Python 3.13**: Nicht kompatibel - verwenden Sie Python 3.12 oder niedriger
-2. **Visual Studio 2019**: Warnung kann ignoriert werden (nur für Windows Desktop Apps relevant)
-3. **Java/Gradle Version**: Bei Bedarf Java Version anpassen oder Gradle Version in `android/gradle/wrapper/gradle-wrapper.properties` updaten
+Click Show Advanced Settings.
 
-## 👨‍💻 Entwicklung
+Scroll down to the Camera section.
 
-Entwickelt als Teil des Software Engineering Projekts an der FH Campus Wien (2025/2026).
+Set Front to Webcam0 (your real webcam).
+
+Set Back to Webcam0.
+
+Click Finish.
+
+Restart the emulator completely if it was already open.
+
+4. Run the App
+Make sure your emulator is running, then execute:
+
+Bash
+
+flutter run
+📂 Project Structure
+lib/main.dart: Contains the entire application logic (UI, ML Kit integration, and State Management).
+
+pubspec.yaml: Lists all dependencies (camera, google_mlkit_pose_detection, flutter_tts, shared_preferences).
+
+android/: Native Android configuration files.
+
+ios/: Native iOS configuration files.
+
+🤝 Troubleshooting
+"Pixelated/Green Camera on Emulator": You forgot Step 3! Go back to Android Studio Device Manager and change the camera input from "Emulated" to "Webcam0".
+
+"CocoaPods not installed" (macOS only): If you are on a Mac, run cd ios && pod install && cd ...
+
+📜 License
+This project was created for educational purposes as part of a university software engineering course.
+
+
+### Next Step: How to Push this to GitHub
+Since you already have the folder on your computer, here is how to "connect" it to this new repository name and upload your `README.md`:
+
+1.  **Create the empty repo** on GitHub named `rehabilitation-assistant`.
+2.  **In your VS Code terminal**, run these commands to update the remote link:
+
+```powershell
+# 1. Remove the old link to the group project
+git remote remove origin
+
+# 2. Add the link to YOUR new solo project
+git remote add origin https://github.com/Daniilsvirenko/rehabilitation-assistant.git
+
+# 3. Add the new README file
+git add README.md
+
+# 4. Save the changes
+git commit -m "Update README with setup instructions"
+
+# 5. Push everything to the new repo
+git push -u origin main
