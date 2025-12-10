@@ -54,100 +54,41 @@ class MenuScreen extends StatefulWidget {
 
 class _MenuScreenState extends State<MenuScreen> {
   List<Map<String, dynamic>> _history = [];
-  
-  // FR-14: User Profile Data
-  String _userName = "Guest";
-  String _userAge = "--";
-  String _userWeight = "--";
 
   @override
   void initState() {
     super.initState();
-    _loadData();
+    _loadHistory();
   }
 
-  Future<void> _loadData() async {
+  Future<void> _loadHistory() async {
     final prefs = await SharedPreferences.getInstance();
-    
-    // Load History
     final String? historyJson = prefs.getString('workout_history');
     if (historyJson != null) {
       setState(() {
         _history = List<Map<String, dynamic>>.from(json.decode(historyJson));
       });
     }
-
-    // Load Profile (FR-14)
-    setState(() {
-      _userName = prefs.getString('user_name') ?? "Guest";
-      _userAge = prefs.getString('user_age') ?? "--";
-      _userWeight = prefs.getString('user_weight') ?? "--";
-    });
-  }
-
-  void _openProfileSettings() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const ProfileScreen()),
-    );
-    _loadData(); // Reload after editing
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("GymGuard AI"),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.person, color: Colors.blueAccent),
-            onPressed: _openProfileSettings,
-          )
-        ],
-      ),
+      appBar: AppBar(title: const Text("GymGuard AI")),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // FR-14: User Profile Card
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(colors: [Colors.blueAccent.withOpacity(0.2), Colors.purpleAccent.withOpacity(0.2)]),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.blueAccent.withOpacity(0.5))
-              ),
-              child: Row(
-                children: [
-                  const CircleAvatar(
-                    radius: 30,
-                    backgroundColor: Colors.blueAccent,
-                    child: Icon(Icons.person, size: 40, color: Colors.white),
-                  ),
-                  const SizedBox(width: 20),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text("Hello, $_userName!", style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
-                      const SizedBox(height: 5),
-                      Text("Age: $_userAge  |  Weight: $_userWeight kg", style: const TextStyle(color: Colors.white70)),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 30),
-
             const Text(
               "Start Workout",
               textAlign: TextAlign.left,
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white),
             ),
             const SizedBox(height: 20),
             _buildMenuButton(context, "Squats", "Legs (ROM check)", Icons.accessibility_new, ExerciseType.squat),
             const SizedBox(height: 15),
-            _buildMenuButton(context, "Push-Ups", "Chest (Smart Mode)", Icons.fitness_center, ExerciseType.pushUp),
+            _buildMenuButton(context, "Push-Ups", "Chest (Horizontal only)", Icons.fitness_center, ExerciseType.pushUp),
             const SizedBox(height: 15),
             _buildMenuButton(context, "Overhead Press", "Shoulders", Icons.arrow_upward, ExerciseType.overheadPress),
             const SizedBox(height: 15),
@@ -216,7 +157,7 @@ class _MenuScreenState extends State<MenuScreen> {
           context,
           MaterialPageRoute(builder: (context) => WorkoutScreen(exerciseType: type)),
         );
-        _loadData(); // Reload history
+        _loadHistory();
       },
       child: Row(
         children: [
@@ -232,92 +173,6 @@ class _MenuScreenState extends State<MenuScreen> {
           const Spacer(),
           const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.white54),
         ],
-      ),
-    );
-  }
-}
-
-// --- NEW: PROFILE SCREEN (FR-14) ---
-class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
-
-  @override
-  State<ProfileScreen> createState() => _ProfileScreenState();
-}
-
-class _ProfileScreenState extends State<ProfileScreen> {
-  final _nameController = TextEditingController();
-  final _ageController = TextEditingController();
-  final _weightController = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    _loadCurrentProfile();
-  }
-
-  Future<void> _loadCurrentProfile() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _nameController.text = prefs.getString('user_name') ?? "";
-      _ageController.text = prefs.getString('user_age') ?? "";
-      _weightController.text = prefs.getString('user_weight') ?? "";
-    });
-  }
-
-  Future<void> _saveProfile() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('user_name', _nameController.text);
-    await prefs.setString('user_age', _ageController.text);
-    await prefs.setString('user_weight', _weightController.text);
-    
-    if (mounted) Navigator.pop(context);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Edit Profile")),
-      body: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          children: [
-            const Icon(Icons.account_circle, size: 100, color: Colors.blueAccent),
-            const SizedBox(height: 20),
-            TextField(
-              controller: _nameController,
-              decoration: const InputDecoration(labelText: "Name", border: OutlineInputBorder(), prefixIcon: Icon(Icons.person)),
-              style: const TextStyle(color: Colors.white),
-            ),
-            const SizedBox(height: 15),
-            TextField(
-              controller: _ageController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: "Age", border: OutlineInputBorder(), prefixIcon: Icon(Icons.calendar_today)),
-              style: const TextStyle(color: Colors.white),
-            ),
-            const SizedBox(height: 15),
-            TextField(
-              controller: _weightController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: "Weight (kg)", border: OutlineInputBorder(), prefixIcon: Icon(Icons.monitor_weight)),
-              style: const TextStyle(color: Colors.white),
-            ),
-            const SizedBox(height: 30),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.save),
-                label: const Text("SAVE PROFILE"),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  padding: const EdgeInsets.symmetric(vertical: 15),
-                ),
-                onPressed: _saveProfile,
-              ),
-            )
-          ],
-        ),
       ),
     );
   }
@@ -505,57 +360,45 @@ class _WorkoutScreenState extends State<WorkoutScreen> with WidgetsBindingObserv
     }
   }
 
-  // --- 2. PUSH-UP (Smart Mode) ---
+  // --- 2. PUSH-UP (Smart Orientation Check) ---
   void _analyzePushUp(Pose pose) {
     final shoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
     final hip = pose.landmarks[PoseLandmarkType.leftHip];
     final elbow = pose.landmarks[PoseLandmarkType.leftElbow];
     final wrist = pose.landmarks[PoseLandmarkType.leftWrist];
-    final knee = pose.landmarks[PoseLandmarkType.leftKnee];
 
-    if (shoulder == null || hip == null || elbow == null || wrist == null || knee == null) return;
+    if (shoulder == null || hip == null || elbow == null || wrist == null) return;
 
-    // ORIENTATION CHECK
+    // ORIENTATION CHECK: Are we horizontal?
     double diffY = (shoulder.y - hip.y).abs();
     double diffX = (shoulder.x - hip.x).abs();
 
+    // If Height difference is bigger than Width difference -> We are STANDING (Vertical)
+    // We only want to count if we are Horizontal (Push-up position)
     if (diffY > diffX) {
-       _feedback = "GET ON FLOOR"; 
+       _feedback = "GET ON FLOOR"; // Tell user to lie down
        _feedbackColor = Colors.orangeAccent;
-       return; 
+       return; // Stop analysis
     }
 
+    // Now analyze Push-Up
     double armAngle = _calculateAngle(shoulder, elbow, wrist);
-    double bodyAngle = _calculateAngle(shoulder, hip, knee);
-    bool badPosture = bodyAngle < 150 || bodyAngle > 210;
 
-    if (armAngle > 160) { 
+    if (armAngle > 160) { // Arms extended (Top)
       if (_stage == "down") {
         if (DateTime.now().difference(_lastRepTime).inSeconds < 1) return;
         _lastRepTime = DateTime.now();
 
-        if (badPosture) {
-           setState(() => _mistakes++);
-           _feedback = "FIX POSTURE!";
-           _feedbackColor = Colors.redAccent;
-           _speak("Straighten back");
-        } else {
-           setState(() => _reps++);
-           _feedback = "GOOD PUSHUP!";
-           _feedbackColor = Colors.greenAccent;
-           _speak("Good");
-        }
+        setState(() => _reps++);
+        _feedback = "GOOD PUSHUP!";
+        _feedbackColor = Colors.greenAccent;
+        _speak("Good");
       }
       _stage = "up";
-    } else if (armAngle < 90) { 
+    } else if (armAngle < 90) { // Chest down (Bottom)
       _stage = "down";
-      if (badPosture) {
-         _feedback = "BACK STRAIGHT!";
-         _feedbackColor = Colors.redAccent;
-      } else {
-         _feedback = "PUSH UP!";
-         _feedbackColor = Colors.blueAccent;
-      }
+      _feedback = "PUSH UP!";
+      _feedbackColor = Colors.blueAccent;
     } else if (armAngle < 140 && _stage == "up") {
       _feedback = "LOWER...";
       _feedbackColor = Colors.orangeAccent;
@@ -586,7 +429,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with WidgetsBindingObserv
     }
   }
 
-  // --- 4. BICEP CURL (Balanced) ---
+  // --- 4. BICEP CURL (User Version) ---
   void _analyzeBicepCurl(Pose pose) {
     final shoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
     final elbow = pose.landmarks[PoseLandmarkType.leftElbow];
@@ -595,43 +438,30 @@ class _WorkoutScreenState extends State<WorkoutScreen> with WidgetsBindingObserv
 
     double angle = _calculateAngle(shoulder, elbow, wrist);
 
+    if (_stage == "down") {
+       _startShoulderX = shoulder.x; 
+    }
+    double bodyScale = (shoulder.y - elbow.y).abs();
+    if (_stage == "up" && (shoulder.x - _startShoulderX).abs() > (bodyScale * 0.2)) {
+       _feedback = "DON'T SWING!";
+       _feedbackColor = Colors.redAccent;
+       _speak("Do not swing");
+    }
+
     if (angle > 160) {
       _stage = "down";
-      _startShoulderX = shoulder.x; 
-      _repStartTime = DateTime.now(); 
-    }
-
-    if (angle < 160 && angle > 50) {
-       double bodyScale = (shoulder.y - elbow.y).abs();
-       if ((shoulder.x - _startShoulderX).abs() > (bodyScale * 0.2)) {
-           _feedback = "DON'T SWING!";
-           _feedbackColor = Colors.redAccent;
-           _speak("Do not swing");
-       }
-    }
-
-    if (angle < 45) {
+      _feedback = "CURL UP!";
+      _feedbackColor = Colors.blueAccent;
+    } else if (angle < 50) {
       if (_stage == "down") {
         if (DateTime.now().difference(_lastRepTime).inSeconds < 1) return;
         _lastRepTime = DateTime.now();
 
-        final liftTime = DateTime.now().difference(_repStartTime);
-        
-        if (liftTime.inMilliseconds < 1200) { 
+        if (_feedback == "DON'T SWING!") {
            setState(() => _mistakes++);
-           _feedback = "TOO FAST!";
-           _feedbackColor = Colors.redAccent;
-           _speak("Slow down");
-        }
-        else if (_feedback == "DON'T SWING!") {
-           setState(() => _mistakes++);
-           _feedback = "BAD FORM";
-           _feedbackColor = Colors.redAccent;
-           _speak("Don't swing");
-        } 
-        else {
+        } else {
            setState(() => _reps++);
-           _feedback = "PERFECT!";
+           _feedback = "GOOD!";
            _feedbackColor = Colors.greenAccent;
            _speak("Nice");
         }
