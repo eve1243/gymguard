@@ -506,139 +506,206 @@ class _WorkoutScreenState extends State<WorkoutScreen> with WidgetsBindingObserv
   }
 
   // --- 2. PUSH-UP (Smart Mode) ---
-  void _analyzePushUp(Pose pose) {
-    final shoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
-    final hip = pose.landmarks[PoseLandmarkType.leftHip];
-    final elbow = pose.landmarks[PoseLandmarkType.leftElbow];
-    final wrist = pose.landmarks[PoseLandmarkType.leftWrist];
-    final knee = pose.landmarks[PoseLandmarkType.leftKnee];
+void _analyzePushUp(Pose pose) {
+  final shoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
+  final hip = pose.landmarks[PoseLandmarkType.leftHip];
+  final elbow = pose.landmarks[PoseLandmarkType.leftElbow];
+  final wrist = pose.landmarks[PoseLandmarkType.leftWrist];
+  final knee = pose.landmarks[PoseLandmarkType.leftKnee];
+  if (shoulder == null || hip == null || elbow == null || wrist == null || knee == null) return;
 
-    if (shoulder == null || hip == null || elbow == null || wrist == null || knee == null) return;
+  final DateTime now = DateTime.now();
 
-    // ORIENTATION CHECK
-    double diffY = (shoulder.y - hip.y).abs();
-    double diffX = (shoulder.x - hip.x).abs();
+  // ===== PARAMETER =====
+  const double minDownAngle = 95;     // tiefer runter
+  const double minUpAngle = 155;      // oben fast ganz strecken
+  const int minRepTimeMs = 700;       // nicht zu schnell
+  const double postureMin = 150;      // Körper gerader
+  const double postureMax = 215;
+  // ====================
 
-    if (diffY > diffX) {
-       _feedback = "GET ON FLOOR"; 
-       _feedbackColor = Colors.orangeAccent;
-       return; 
-    }
-
-    double armAngle = _calculateAngle(shoulder, elbow, wrist);
-    double bodyAngle = _calculateAngle(shoulder, hip, knee);
-    bool badPosture = bodyAngle < 150 || bodyAngle > 210;
-
-    if (armAngle > 160) { 
-      if (_stage == "down") {
-        if (DateTime.now().difference(_lastRepTime).inSeconds < 1) return;
-        _lastRepTime = DateTime.now();
-
-        if (badPosture) {
-           setState(() => _mistakes++);
-           _feedback = "FIX POSTURE!";
-           _feedbackColor = Colors.redAccent;
-           _speak("Straighten back");
-        } else {
-           setState(() => _reps++);
-           _feedback = "GOOD PUSHUP!";
-           _feedbackColor = Colors.greenAccent;
-           _speak("Good");
-        }
-      }
-      _stage = "up";
-    } else if (armAngle < 90) { 
-      _stage = "down";
-      if (badPosture) {
-         _feedback = "BACK STRAIGHT!";
-         _feedbackColor = Colors.redAccent;
-      } else {
-         _feedback = "PUSH UP!";
-         _feedbackColor = Colors.blueAccent;
-      }
-    } else if (armAngle < 140 && _stage == "up") {
-      _feedback = "LOWER...";
-      _feedbackColor = Colors.orangeAccent;
-    }
+  // Lage-Check (wirklich am Boden)
+  double diffY = (shoulder.y - hip.y).abs();
+  double diffX = (shoulder.x - hip.x).abs();
+  if (diffY > diffX * 1.2) {
+    _feedback = "GET ON FLOOR";
+    _feedbackColor = Colors.orangeAccent;
+    return;
   }
+
+  double armAngle = _calculateAngle(shoulder, elbow, wrist);
+  double bodyAngle = _calculateAngle(shoulder, hip, knee);
+  bool badPosture = bodyAngle < postureMin || bodyAngle > postureMax;
+
+  // Startposition (unten)
+  if (armAngle < minDownAngle) {
+    _stage = "down";
+    _repStartTime = now;
+    _feedback = badPosture ? "BACK STRAIGHT" : "PUSH UP";
+    _feedbackColor = badPosture ? Colors.redAccent : Colors.blueAccent;
+    return;
+  }
+
+  // Endposition (oben)
+  if (_stage == "down" && armAngle > minUpAngle) {
+    final int repTime = now.difference(_repStartTime).inMilliseconds;
+    _stage = "up";
+    _lastRepTime = now;
+
+    if (repTime < minRepTimeMs) {
+      setState(() => _mistakes++);
+      _feedback = "TOO FAST";
+      _feedbackColor = Colors.redAccent;
+      _speak("Slow down");
+      return;
+    }
+
+    if (badPosture) {
+      setState(() => _mistakes++);
+      _feedback = "BAD FORM";
+      _feedbackColor = Colors.redAccent;
+      _speak("Straighten body");
+      return;
+    }
+
+    setState(() => _reps++);
+    _feedback = "GOOD PUSHUP";
+    _feedbackColor = Colors.greenAccent;
+    _speak("Good");
+  }
+
+  // Zwischenphase
+  if (_stage == "up" && armAngle < 140 && armAngle > minDownAngle) {
+    _feedback = "LOWER";
+    _feedbackColor = Colors.orangeAccent;
+  }
+}
 
   // --- 3. OVERHEAD PRESS ---
-  void _analyzeOverheadPress(Pose pose) {
-    final shoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
-    final elbow = pose.landmarks[PoseLandmarkType.leftElbow];
-    final wrist = pose.landmarks[PoseLandmarkType.leftWrist];
-    if (shoulder == null || elbow == null || wrist == null) return;
+void _analyzeOverheadPress(Pose pose) {
+  final shoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
+  final elbow = pose.landmarks[PoseLandmarkType.leftElbow];
+  final wrist = pose.landmarks[PoseLandmarkType.leftWrist];
+  final hip = pose.landmarks[PoseLandmarkType.leftHip];
+  if (shoulder == null || elbow == null || wrist == null || hip == null) return;
 
-    double elbowAngle = _calculateAngle(shoulder, elbow, wrist);
+  final double elbowAngle = _calculateAngle(shoulder, elbow, wrist);
+  final DateTime now = DateTime.now();
 
-    if (elbowAngle > 160 && wrist.y < shoulder.y) {
-      if (_stage == "down") {
-        setState(() => _reps++);
-        _feedback = "GOOD!";
-        _feedbackColor = Colors.greenAccent;
-        _speak("Good press");
-      }
-      _stage = "up";
-    } else if (elbowAngle < 90 && wrist.y > (shoulder.y - 100)) {
-      _stage = "down";
-      _feedback = "PUSH UP!";
-      _feedbackColor = Colors.blueAccent;
-    }
+  // ===== PARAMETER =====
+  const double downAngle = 100;   // unten klar gebeugt
+  const double upAngle = 165;     // oben fast gestreckt
+  const int minPressTimeMs = 800; // zu schnell ❌
+  const double leanTolerance = 0.25; // Hohlkreuz-Toleranz
+  // ====================
+
+  // Lean-Back / Schwung Check
+  final double bodyScale = (shoulder.y - hip.y).abs();
+  if ((shoulder.x - hip.x).abs() > bodyScale * leanTolerance) {
+    _feedback = "NO LEAN BACK";
+    _feedbackColor = Colors.redAccent;
+    return;
   }
+
+  // Startposition (unten)
+  if (elbowAngle < downAngle && wrist.y > shoulder.y - 40) {
+    _stage = "down";
+    _repStartTime = now;
+    _feedback = "PRESS UP";
+    _feedbackColor = Colors.blueAccent;
+    return;
+  }
+
+  // Endposition (oben)
+  if (_stage == "down" && elbowAngle > upAngle && wrist.y < shoulder.y) {
+    final int pressTime = now.difference(_repStartTime).inMilliseconds;
+    _stage = "up";
+
+    // ❌ zu schnell
+    if (pressTime < minPressTimeMs) {
+      setState(() => _mistakes++);
+      _feedback = "TOO FAST";
+      _feedbackColor = Colors.redAccent;
+      _speak("Too fast");
+      return;
+    }
+
+    // ✅ sauberer Rep
+    setState(() => _reps++);
+    _feedback = "GOOD PRESS";
+    _feedbackColor = Colors.greenAccent;
+    _speak("Good");
+  }
+}
 
   // --- 4. BICEP CURL (Balanced) ---
-  void _analyzeBicepCurl(Pose pose) {
-    final shoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
-    final elbow = pose.landmarks[PoseLandmarkType.leftElbow];
-    final wrist = pose.landmarks[PoseLandmarkType.leftWrist];
-    if (shoulder == null || elbow == null || wrist == null) return;
+void _analyzeBicepCurl(Pose pose) {
+  final shoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
+  final elbow = pose.landmarks[PoseLandmarkType.leftElbow];
+  final wrist = pose.landmarks[PoseLandmarkType.leftWrist];
+  if (shoulder == null || elbow == null || wrist == null) return;
 
-    double angle = _calculateAngle(shoulder, elbow, wrist);
+  final double angle = _calculateAngle(shoulder, elbow, wrist);
+  final DateTime now = DateTime.now();
 
-    if (angle > 160) {
-      _stage = "down";
-      _startShoulderX = shoulder.x; 
-      _repStartTime = DateTime.now(); 
-    }
+  // ===== PARAMETER (HIER KANNST DU FEINTUNEN) =====
+  const int minRepTimeMs = 900;   // zu schnell darunter ❌
+  const int maxRepTimeMs = 2500;  // zu langsam darüber ❌
+  const double downAngle = 155;   // Arm fast gestreckt
+  const double upAngle = 60;      // Arm klar gebeugt
+  const double swingFactor = 0.30; // Schwung-Toleranz
+  // ===============================================
 
-    if (angle < 160 && angle > 50) {
-       double bodyScale = (shoulder.y - elbow.y).abs();
-       if ((shoulder.x - _startShoulderX).abs() > (bodyScale * 0.2)) {
-           _feedback = "DON'T SWING!";
-           _feedbackColor = Colors.redAccent;
-           _speak("Do not swing");
-       }
-    }
+  // Startposition (unten)
+  if (angle > downAngle) {
+    _stage = "down";
+    _startShoulderX = shoulder.x;
+    _repStartTime = now;
+    return;
+  }
 
-    if (angle < 45) {
-      if (_stage == "down") {
-        if (DateTime.now().difference(_lastRepTime).inSeconds < 1) return;
-        _lastRepTime = DateTime.now();
-
-        final liftTime = DateTime.now().difference(_repStartTime);
-        
-        if (liftTime.inMilliseconds < 1200) { 
-           setState(() => _mistakes++);
-           _feedback = "TOO FAST!";
-           _feedbackColor = Colors.redAccent;
-           _speak("Slow down");
-        }
-        else if (_feedback == "DON'T SWING!") {
-           setState(() => _mistakes++);
-           _feedback = "BAD FORM";
-           _feedbackColor = Colors.redAccent;
-           _speak("Don't swing");
-        } 
-        else {
-           setState(() => _reps++);
-           _feedback = "PERFECT!";
-           _feedbackColor = Colors.greenAccent;
-           _speak("Nice");
-        }
-      }
-      _stage = "up";
+  // Während Bewegung: Schwung prüfen
+  if (_stage == "down" && angle < downAngle && angle > upAngle) {
+    final double bodyScale = (shoulder.y - elbow.y).abs();
+    if ((shoulder.x - _startShoulderX).abs() > bodyScale * swingFactor) {
+      _feedback = "DON'T SWING";
+      _feedbackColor = Colors.redAccent;
+      return;
     }
   }
+
+  // Endposition (oben)
+  if (_stage == "down" && angle < upAngle) {
+    final int repTime = now.difference(_repStartTime).inMilliseconds;
+
+    _stage = "up";
+    _lastRepTime = now;
+
+    // ❌ ZU SCHNELL
+    if (repTime < minRepTimeMs) {
+      setState(() => _mistakes++);
+      _feedback = "TOO FAST";
+      _feedbackColor = Colors.redAccent;
+      _speak("Too fast");
+      return;
+    }
+
+    // ❌ ZU LANGSAM
+    if (repTime > maxRepTimeMs) {
+      setState(() => _mistakes++);
+      _feedback = "TOO SLOW";
+      _feedbackColor = Colors.orangeAccent;
+      _speak("Faster");
+      return;
+    }
+
+    // ✅ SAUBERER REP
+    setState(() => _reps++);
+    _feedback = "GOOD REP";
+    _feedbackColor = Colors.greenAccent;
+    _speak("Good");
+  }
+}
 
   double _calculateAngle(PoseLandmark first, PoseLandmark mid, PoseLandmark last) {
     double radians = math.atan2(last.y - mid.y, last.x - mid.x) -
@@ -951,23 +1018,22 @@ class PosePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()..style = PaintingStyle.stroke..strokeWidth = 4.0..color = Colors.greenAccent;
-    final double scaleX = size.width / imageHeight; 
-    final double scaleY = size.height / imageWidth;
+    final double scaleX = size.width / imageWidth;
+    final double scaleY = size.height / imageHeight;
 
-    void paintLine(PoseLandmarkType type1, PoseLandmarkType type2) {
-      final p1 = pose.landmarks[type1];
-      final p2 = pose.landmarks[type2];
-      if (p1 == null || p2 == null) return;
-      double x1 = p1.x * scaleX;
-      double y1 = p1.y * scaleY;
-      double x2 = p2.x * scaleX;
-      double y2 = p2.y * scaleY;
-      if (lensDirection == CameraLensDirection.front) {
-        x1 = size.width - x1;
-        x2 = size.width - x2;
-      }
-      canvas.drawLine(Offset(x1, y1), Offset(x2, y2), paint);
-    }
+void paintLine(PoseLandmarkType type1, PoseLandmarkType type2) {
+  final p1 = pose.landmarks[type1];
+  final p2 = pose.landmarks[type2];
+  if (p1 == null || p2 == null) return;
+
+  double x1 = p1.x * scaleX;
+  double y1 = p1.y * scaleY;
+  double x2 = p2.x * scaleX;
+  double y2 = p2.y * scaleY;
+
+  canvas.drawLine(Offset(x1, y1), Offset(x2, y2), paint);
+}
+
     paintLine(PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder);
     paintLine(PoseLandmarkType.leftShoulder, PoseLandmarkType.leftHip);
     paintLine(PoseLandmarkType.rightShoulder, PoseLandmarkType.rightHip);
