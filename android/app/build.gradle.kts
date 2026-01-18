@@ -24,14 +24,12 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     kotlinOptions {
-        // Используем старый формат, чтобы гарантировать совместимость, 
-        // но игнорируем предупреждения о депрекации, пока это работает.
-        jvmTarget = "1.8"
+        jvmTarget = "17"
     }
 
     sourceSets {

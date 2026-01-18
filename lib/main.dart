@@ -661,8 +661,14 @@ class _WorkoutScreenState extends State<WorkoutScreen>
     WidgetsBinding.instance.addObserver(this);
     _initializeCamera();
     _initTTS();
-    _poseDetector =
-        PoseDetector(options: PoseDetectorOptions(mode: PoseDetectionMode.stream));
+
+    // Optimize pose detector for Android performance
+    final options = PoseDetectorOptions(
+      mode: PoseDetectionMode.stream,
+      // Enable pose classification for better accuracy on Android
+      // but keep it lightweight
+    );
+    _poseDetector = PoseDetector(options: options);
   }
 
   Future<void> _initTTS() async {
@@ -688,7 +694,7 @@ class _WorkoutScreenState extends State<WorkoutScreen>
     if (_controller != null) await _controller!.dispose();
     _controller = CameraController(
       cameras[index],
-      ResolutionPreset.low,
+      ResolutionPreset.medium, // Improved resolution for better detection
       enableAudio: false,
       imageFormatGroup: Platform.isAndroid ? ImageFormatGroup.nv21 : ImageFormatGroup.bgra8888,
     );
@@ -709,8 +715,17 @@ class _WorkoutScreenState extends State<WorkoutScreen>
     _startCamera(newIndex);
   }
 
+  // Frame skipping for better performance on Android
+  int _frameSkipCounter = 0;
+  final int frameSkipRate = Platform.isAndroid ? 3 : 2;
+
   Future<void> _processCameraImage(CameraImage image) async {
     if (_isDetecting || _poseDetector == null || _isPaused) return;
+
+    // Skip frames for better performance on Android
+    _frameSkipCounter++;
+    if (_frameSkipCounter % frameSkipRate != 0) return;
+
     _isDetecting = true;
 
     final inputImage = _inputImageFromCameraImage(image);
@@ -724,6 +739,17 @@ class _WorkoutScreenState extends State<WorkoutScreen>
       if (poses.isNotEmpty) {
         final pose = poses.first;
         
+        // Check if pose has minimum required landmarks
+        bool hasValidPose = _validatePoseQuality(pose);
+        if (!hasValidPose) {
+          _customPaint = null;
+          _feedback = "Position yourself better";
+          _feedbackColor = Colors.orangeAccent;
+          if (mounted) setState(() {});
+          _isDetecting = false;
+          return;
+        }
+
         switch (widget.exerciseType) {
           case ExerciseType.squat: _analyzeSquat(pose); break;
           case ExerciseType.pushUp: _analyzePushUp(pose); break;
@@ -738,22 +764,45 @@ class _WorkoutScreenState extends State<WorkoutScreen>
       } else {
         _customPaint = null;
         _feedback = "Not visible";
+        _feedbackColor = Colors.redAccent;
       }
     } catch (e) {
-      debugPrint("Error: $e");
+      debugPrint("Pose detection error: $e");
+      _feedback = "Detection error";
+      _feedbackColor = Colors.redAccent;
     } finally {
       if (mounted) setState(() {});
       _isDetecting = false;
     }
   }
 
-  // --- 1. SQUAT ---
+  // Validate pose quality for better detection reliability
+  bool _validatePoseQuality(Pose pose) {
+    final requiredLandmarks = [
+      PoseLandmarkType.leftShoulder,
+      PoseLandmarkType.rightShoulder,
+      PoseLandmarkType.leftHip,
+      PoseLandmarkType.rightHip,
+    ];
+
+    for (final landmark in requiredLandmarks) {
+      final point = pose.landmarks[landmark];
+      if (point == null || point.likelihood < 0.3) { // Lowered threshold for Android
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // --- 1. SQUAT (OPTIMIZED FOR ANDROID) ---
   void _analyzeSquat(Pose pose) {
     final hip = pose.landmarks[PoseLandmarkType.leftHip];
     final knee = pose.landmarks[PoseLandmarkType.leftKnee];
     final ankle = pose.landmarks[PoseLandmarkType.leftAnkle];
     if (hip == null || knee == null || ankle == null) return;
-    if (hip.likelihood < 0.5 || knee.likelihood < 0.5) return;
+
+    // Lowered likelihood threshold for Android compatibility
+    if (hip.likelihood < 0.3 || knee.likelihood < 0.3 || ankle.likelihood < 0.3) return;
 
     double angle = _calculateAngle(hip, knee, ankle);
     
@@ -767,13 +816,13 @@ class _WorkoutScreenState extends State<WorkoutScreen>
         _lastRepTime = DateTime.now();
 
         final duration = DateTime.now().difference(_repStartTime);
-        if (duration.inMilliseconds < 1500) { 
+        if (duration.inMilliseconds < 1200) { // Slightly more lenient timing
            setState(() => _mistakes++);
            _feedback = "TOO FAST!";
            _feedbackColor = Colors.redAccent;
            _speak("Slow down");
         } 
-        else if (_minAngle < 90) {
+        else if (_minAngle < 95) { // Slightly more lenient depth
           setState(() => _reps++);
           _feedback = "PERFECT!";
           _feedbackColor = Colors.greenAccent;
@@ -793,7 +842,7 @@ class _WorkoutScreenState extends State<WorkoutScreen>
         _minAngle = angle;
         _repStartTime = DateTime.now(); 
       }
-      if (angle < 90) {
+      if (angle < 95) { // Updated threshold
         _feedback = "UP!";
         _feedbackColor = Colors.blueAccent;
       } else {

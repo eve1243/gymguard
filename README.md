@@ -1,6 +1,6 @@
-# Rehabilitation Assistant (GymGuard AI)
+# GymGuard
 
-**Rehabilitation Assistant** (formerly GymGuard) is a cross-platform mobile application (Android/iOS) designed to act as an intelligent, real-time personal trainer.
+**GymGuard** is a cross-platform mobile application (Android/iOS) designed to act as an intelligent, real-time personal trainer.
 
 Unlike standard fitness trackers, this app uses **Computer Vision (Google ML Kit)** to "watch" you exercise through your smartphone camera. It analyzes your biomechanics in real-time to count repetitions, correct posture, and ensure safe movement tempo—all processed locally on your device for maximum privacy.
 
@@ -34,4 +34,9 @@ git clone https://github.com/eve1243/gymguard.git
 cd gymguard
 flutter pub get
 flutter run
+```
+---
+**With the Script**
+```bash
+./run_application.bat
 
