@@ -632,6 +632,9 @@ class _WorkoutScreenState extends State<WorkoutScreen>
   final AIMovementAnalyzer _aiAnalyzer = AIMovementAnalyzer();
   bool _aiEnabled = false;
 
+  // Voice Control State
+  bool _voiceEnabled = true;
+
   // Exercise tracking variables - hier wird exercise state gespeichert
   int _reps = 0;           // how many good reps
   int _mistakes = 0;       // how many errors
@@ -727,6 +730,9 @@ class _WorkoutScreenState extends State<WorkoutScreen>
 
   Future<void> _speak(String text) async {
     try {
+      // Check if voice is enabled
+      if (!_voiceEnabled) return;
+
       // avoid spam - but allow important feedback
       if (DateTime.now().difference(_lastSpeech).inSeconds < 1) return;
       _lastSpeech = DateTime.now();
@@ -741,6 +747,9 @@ class _WorkoutScreenState extends State<WorkoutScreen>
   // NEU: Smart voice coaching - only speak when needed
   Future<void> _smartSpeak(String text, String feedbackType) async {
     try {
+      // Check if voice is enabled
+      if (!_voiceEnabled) return;
+
       // prevent repetitive praise for consecutive good reps
       if (feedbackType == "good" && _consecutiveGoodReps > 1) {
         // only speak every 3rd good rep after the first
@@ -761,6 +770,25 @@ class _WorkoutScreenState extends State<WorkoutScreen>
       await _speak(text);
     } catch (e) {
       print("❌ Smart speech failed: $e");
+    }
+  }
+
+  // Toggle voice control and stop any ongoing speech
+  Future<void> _toggleVoiceControl() async {
+    setState(() {
+      _voiceEnabled = !_voiceEnabled;
+    });
+
+    // Stop any ongoing speech when disabling voice control
+    if (!_voiceEnabled) {
+      try {
+        await flutterTts.stop();
+        print("🔇 Voice control disabled, TTS stopped");
+      } catch (e) {
+        print("❌ Error stopping TTS: $e");
+      }
+    } else {
+      print("🔊 Voice control enabled");
     }
   }
 
@@ -1409,13 +1437,14 @@ Future<void> _finishWorkout() async {
       appBar: AppBar(
         title: Text(title),
         actions: [
-          // Voice Test Button - zum testen ob TTS funktioniert
+          // Voice Control Toggle Button
           IconButton(
-            icon: const Icon(Icons.volume_up, color: Colors.blueAccent),
-            onPressed: () async {
-              await _speak("Voice coaching test! Can you hear me?");
-            },
-            tooltip: "Test Voice Coaching",
+            icon: Icon(
+              _voiceEnabled ? Icons.volume_up : Icons.volume_off,
+              color: _voiceEnabled ? Colors.blueAccent : Colors.grey,
+            ),
+            onPressed: _toggleVoiceControl,
+            tooltip: _voiceEnabled ? "Disable Voice Control" : "Enable Voice Control",
           ),
           IconButton(
             icon: const Icon(Icons.switch_camera),
