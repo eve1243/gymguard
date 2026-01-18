@@ -1,53 +1,53 @@
 import 'dart:math';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 
-/// Intelligente AI-basierte Bewegungsanalyse für Fitness-Übungen
-/// Verwendet erweiterte mathematische Modelle statt einfacher if/else Regeln
+/// Intelligente AI-Movement-Analyzer für workout exercises
+/// Benutzt advanced mathematical models statt simple if/else rules
 class AIMovementAnalyzer {
   bool _isInitialized = false;
 
-  // Sequence Buffer für zeitbasierte Analyse
-  static const int sequenceLength = 30; // 30 Frames = ~1 Sekunde bei 30fps
+  // Sequence Buffer für time-based analysis - speichert die letzten frames
+  static const int sequenceLength = 30; // 30 frames = ungefähr 1 second bei 30fps
   List<List<double>> _poseSequence = [];
   List<double> _qualityHistory = [];
 
-  // AI-ähnliche Gewichtungen für verschiedene Features
+  // AI-like weights für different features - wie wichtig ist was
   static const Map<String, double> _featureWeights = {
-    'angle_stability': 0.3,
-    'movement_smoothness': 0.25,
-    'tempo_consistency': 0.2,
-    'posture_alignment': 0.15,
-    'range_of_motion': 0.1,
+    'angle_stability': 0.3,     // wie stable sind die angles
+    'movement_smoothness': 0.25, // wie smooth ist die movement
+    'tempo_consistency': 0.2,    // consistent tempo oder nicht
+    'posture_alignment': 0.15,   // body posture correct?
+    'range_of_motion': 0.1,      // full range verwendet
   };
 
-  /// Initialisiert den intelligenten Analyzer
+  /// Initialize den intelligent analyzer
   Future<bool> initialize() async {
     try {
-      print("🤖 Initialisiere Intelligent Movement Analyzer...");
+      print("🤖 Starting up intelligent movement analyzer...");
 
-      // Simuliere AI-Model Ladung
+      // simulate AI model loading - in real app würde hier ein model geladen
       await Future.delayed(Duration(milliseconds: 200));
       _isInitialized = true;
 
-      print("✅ Intelligent Movement Analyzer erfolgreich initialisiert!");
+      print("✅ Movement analyzer successfully initialized!");
       return true;
     } catch (e) {
-      print("❌ Fehler beim Initialisieren des Analyzers: $e");
+      print("❌ Error beim initialisieren: $e");
       return false;
     }
   }
 
-  /// Analysiert eine Pose-Sequenz mit intelligenten Algorithmen
-  /// Returns: Map mit AI-ähnlichen Vorhersagen für Bewegungsqualität
+  /// Analyze eine pose sequence mit smart algorithms
+  /// Returns: Map with AI-like predictions für movement quality
   Future<Map<String, dynamic>> analyzePoseSequence(
     Pose pose,
     String exerciseType,
   ) async {
     if (!_isInitialized) {
-      return _getFallbackAnalysis();
+      return _getFallbackAnalysis(); // fallback wenn AI nicht ready
     }
 
-    // Extrahiere erweiterte Features aus der aktuellen Pose
+    // extract advanced features from current pose
     Map<String, double> poseFeatures = _extractAdvancedFeatures(pose);
 
     // Konvertiere zu Liste für Sequenz-Analyse
@@ -70,11 +70,12 @@ class AIMovementAnalyzer {
     return await _runIntelligentAnalysis(exerciseType, poseFeatures);
   }
 
-  /// Extrahiert erweiterte biomechanische Features aus Pose
+  /// Extract advanced biomechanical features from pose data
   Map<String, double> _extractAdvancedFeatures(Pose pose) {
     Map<String, double> features = {};
 
     try {
+      // get alle wichtigen body landmarks
       final leftShoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
       final leftElbow = pose.landmarks[PoseLandmarkType.leftElbow];
       final leftWrist = pose.landmarks[PoseLandmarkType.leftWrist];
@@ -84,39 +85,39 @@ class AIMovementAnalyzer {
       final nose = pose.landmarks[PoseLandmarkType.nose];
 
       if (leftShoulder != null && leftElbow != null && leftWrist != null) {
-        // 1. Arm-Winkel (Grundlage)
+        // 1. Arm angle - basic aber important
         double armAngle = _calculateAngle(leftShoulder, leftElbow, leftWrist);
         features['arm_angle'] = armAngle;
 
-        // 2. Winkel-Stabilität (über Zeit)
+        // 2. Angle stability over time - wie stable ist movement
         double angleStability = _calculateAngleStability(armAngle);
         features['angle_stability'] = angleStability;
 
-        // 3. Bewegungs-Geschwindigkeit
+        // 3. Movement speed - too fast ist bad
         double movementSpeed = _calculateMovementSpeed(leftWrist);
         features['movement_speed'] = movementSpeed;
 
-        // 4. Bewegungs-Glätte (Smoothness)
+        // 4. Movement smoothness - jerky movements sind bad form
         double smoothness = _calculateMovementSmoothness();
         features['movement_smoothness'] = smoothness;
 
-        // 5. Schulter-Stabilität (AI-Enhanced)
+        // 5. Shoulder stability - AI enhanced detection
         if (rightShoulder != null) {
           double shoulderStability = _calculateShoulderStability(leftShoulder, rightShoulder);
           features['shoulder_stability'] = shoulderStability;
         }
 
-        // 6. Körper-Ausrichtung
+        // 6. Body alignment - posture check
         if (leftHip != null && rightHip != null && nose != null && rightShoulder != null) {
           double bodyAlignment = _calculateBodyAlignment(leftShoulder, rightShoulder, leftHip, rightHip, nose);
           features['body_alignment'] = bodyAlignment;
         }
 
-        // 7. Tempo-Konsistenz
+        // 7. Tempo consistency - steady rhythm ist better
         double tempoConsistency = _calculateTempoConsistency();
         features['tempo_consistency'] = tempoConsistency;
 
-        // 8. Range of Motion Quality
+        // 8. Range of motion quality - full ROM oder not
         double romQuality = _calculateROMQuality(armAngle);
         features['rom_quality'] = romQuality;
       }
@@ -137,22 +138,23 @@ class AIMovementAnalyzer {
     return features;
   }
 
-  /// Berechnet Winkel-Stabilität über Zeit (AI-Feature)
+  /// Calculate angle stability over time - AI feature
   double _calculateAngleStability(double currentAngle) {
     if (_qualityHistory.length < 5) {
       _qualityHistory.add(currentAngle);
-      return 0.5; // Neutral when insufficient data
+      return 0.5; // neutral wenn not enough data yet
     }
 
-    // Berechne Varianz der letzten Winkel
+    // calculate variance of recent angles - mehr variance = less stable
     List<double> recentAngles = _qualityHistory.take(10).toList();
     double mean = recentAngles.reduce((a, b) => a + b) / recentAngles.length;
     double variance = recentAngles.map((angle) => pow(angle - mean, 2)).reduce((a, b) => a + b) / recentAngles.length;
 
-    // Normalisiere Stabilität (niedrige Varianz = hohe Stabilität)
-    double stability = 1.0 - (variance / 1000.0); // Normalisierung
+    // normalize stability - low variance = high stability
+    double stability = 1.0 - (variance / 1000.0); // normalization factor
     _qualityHistory.add(currentAngle);
 
+    // keep history size manageable
     if (_qualityHistory.length > 30) {
       _qualityHistory.removeAt(0);
     }
@@ -160,17 +162,17 @@ class AIMovementAnalyzer {
     return stability.clamp(0.0, 1.0);
   }
 
-  /// Berechnet Bewegungs-Glätte (Smoothness)
+  /// Calculate movement smoothness - jerky = bad form
   double _calculateMovementSmoothness() {
-    if (_poseSequence.length < 3) return 0.5;
+    if (_poseSequence.length < 3) return 0.5; // need at least 3 frames
 
     double smoothness = 0.0;
     int comparisons = 0;
 
     for (int i = 2; i < _poseSequence.length; i++) {
-      // Vergleiche Bewegungsänderungen zwischen aufeinanderfolgenden Frames
+      // compare movement changes zwischen consecutive frames
       double acceleration = _calculateAcceleration(i);
-      smoothness += 1.0 - (acceleration.abs() / 10.0); // Normalisierung
+      smoothness += 1.0 - (acceleration.abs() / 10.0); // normalize
       comparisons++;
     }
 

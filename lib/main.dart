@@ -4,7 +4,7 @@ import 'dart:io';
 import 'dart:convert';
 import 'services/secure_user_storage.dart';
 import 'models/user_profile.dart';
-import 'ai_movement_analyzer.dart'; // AI-Bewegungsanalyse
+import 'ai_movement_analyzer.dart'; // intelligente AI-Bewegungsanalyse
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
@@ -47,7 +47,7 @@ class GymGuardApp extends StatelessWidget {
   }
 }
 
-// --- 1. MENU SCREEN ---
+// --- 1. MENU SCREEN - das ist wo user sein workout auswählt ---
 class MenuScreen extends StatefulWidget {
   const MenuScreen({super.key});
 
@@ -58,22 +58,20 @@ class MenuScreen extends StatefulWidget {
 class _MenuScreenState extends State<MenuScreen> {
   List<Map<String, dynamic>> _history = [];
   
-  // FR-14: User Profile Data
-UserProfile? _currentUser;
-final SecureUserStorage _secureStorage = SecureUserStorage();
-
-
+  // User Profile Data - hier speichern wir user info
+  UserProfile? _currentUser;
+  final SecureUserStorage _secureStorage = SecureUserStorage();
 
   @override
   void initState() {
     super.initState();
-    _loadInitialUser();
-
+    _loadInitialUser(); // load den active user beim start
   }
 
+// loading the initial user from storage
 Future<void> _loadInitialUser() async {
   final activeId = await _secureStorage.loadActiveUser();
-  if (activeId == null) return;
+  if (activeId == null) return; // kein user gefunden
 
   final user = await _secureStorage.loadUserById(activeId);
   if (user != null) {
@@ -86,9 +84,10 @@ Future<void> _loadInitialUser() async {
   }
 }
 
+// refresh the user data wenn was changed wurde
 Future<void> _loadData() async {
   if (_currentUser == null) return;
-final user = await _secureStorage.loadUserById(_currentUser!.id);
+  final user = await _secureStorage.loadUserById(_currentUser!.id);
 
   if (user != null) {
     setState(() {
@@ -167,6 +166,7 @@ void _openProfileSettings() async {
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
             ),
             const SizedBox(height: 20),
+            // verschiedene exercises die user machen kann
             _buildMenuButton(context, "Squats", "Legs (ROM check)", Icons.accessibility_new, ExerciseType.squat),
             const SizedBox(height: 15),
             _buildMenuButton(context, "Push-Ups", "Chest (Smart Mode)", Icons.fitness_center, ExerciseType.pushUp),
@@ -192,12 +192,13 @@ void _openProfileSettings() async {
     if (_history.isEmpty) {
       return const Text("No workouts yet. Start training!", style: TextStyle(color: Colors.white54));
     }
+    // show the last 5 workouts vom user
     return ListView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      itemCount: _history.length > 5 ? 5 : _history.length,
+      itemCount: _history.length > 5 ? 5 : _history.length, // max 5 items
       itemBuilder: (context, index) {
-        final item = _history[_history.length - 1 - index];
+        final item = _history[_history.length - 1 - index]; // newest first
         return Card(
           color: Colors.white10,
           margin: const EdgeInsets.only(bottom: 10),
@@ -306,20 +307,20 @@ onPressed: () async {
 
 
 
-if (agreed != true) return;
+if (agreed != true) return; // user hat nicht agreed
 
-  // ▶️ WORKOUT START
+  // ▶️ WORKOUT START - navigate to the actual workout screen
   await Navigator.push(
     context,
     MaterialPageRoute(
       builder: (context) => WorkoutScreen(
         exerciseType: type,
-        currentUser: _currentUser!,
+        currentUser: _currentUser!, // pass den current user mit
       ),
     ),
   );
 
-  _loadData();
+  _loadData(); // refresh data nach workout
 },
 
 
@@ -356,17 +357,6 @@ if (agreed != true) return;
     ),
   );
 }
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -610,7 +600,7 @@ Future<void> _saveProfile() async {
 
 enum ExerciseType { squat, pushUp, overheadPress, bicepCurl }
 
-// --- 2. WORKOUT SCREEN ---
+// --- 2. WORKOUT SCREEN - hier passiert die actual exercise tracking ---
 class WorkoutScreen extends StatefulWidget {
   final ExerciseType exerciseType;
   final UserProfile currentUser;
@@ -627,6 +617,7 @@ class WorkoutScreen extends StatefulWidget {
 
 class _WorkoutScreenState extends State<WorkoutScreen>
     with WidgetsBindingObserver {
+  // camera and pose detection stuff
   CameraController? _controller;
   PoseDetector? _poseDetector;
   FlutterTts flutterTts = FlutterTts();
@@ -637,25 +628,30 @@ class _WorkoutScreenState extends State<WorkoutScreen>
   late UserProfile _currentUser;
   final SecureUserStorage _secureStorage = SecureUserStorage();
 
-  // NEU: AI Movement Analyzer
+  // NEU: AI Movement Analyzer - das ist das smart stuff
   final AIMovementAnalyzer _aiAnalyzer = AIMovementAnalyzer();
   bool _aiEnabled = false;
 
-  // Logic Variables
-  int _reps = 0;
-  int _mistakes = 0;
-  String _feedback = "Get Ready";
+  // Exercise tracking variables - hier wird exercise state gespeichert
+  int _reps = 0;           // how many good reps
+  int _mistakes = 0;       // how many errors
+  String _feedback = "Get Ready";  // current feedback message
   Color _feedbackColor = Colors.white;
-  String _stage = "start";
+  String _stage = "start"; // current exercise phase
   double _minAngle = 180.0;
   double _startShoulderX = 0.0;
-  double? _startShoulderY; // NEU: Für Schulter-Höhen-Tracking
+  double? _startShoulderY; // für shoulder height tracking
   DateTime _repStartTime = DateTime.now();
 
-  // Logic helpers
+  // timing helpers für rep counting
   DateTime _lastRepTime = DateTime.now();
   DateTime _lastSpeech = DateTime.now();
   CustomPaint? _customPaint;
+
+  // NEU: Smart Voice Control - prevent voice coaching spam
+  int _consecutiveGoodReps = 0;  // track good reps in a row
+  int _consecutiveMistakes = 0;  // track mistakes in a row
+  String _lastFeedbackType = "";  // remember what we said last time
 
   @override
   void initState() {
@@ -690,14 +686,82 @@ class _WorkoutScreenState extends State<WorkoutScreen>
   }
 
   Future<void> _initTTS() async {
-    await flutterTts.setLanguage("en-US");
-    await flutterTts.setSpeechRate(0.5);
+    try {
+      // check if TTS is available - wichtig für Android compatibility
+      print("🗣️ Initializing voice coaching (TTS)...");
+
+      // set language - try english first dann deutsch fallback
+      var result = await flutterTts.setLanguage("en-US");
+      if (result == 0) {
+        print("❌ en-US not available, trying deutsch...");
+        await flutterTts.setLanguage("de-DE");
+      }
+
+      // configure TTS settings für better voice quality
+      await flutterTts.setSpeechRate(0.6); // slightly faster for workout feedback
+      await flutterTts.setVolume(1.0);     // full volume für gym environment
+      await flutterTts.setPitch(1.0);      // normal pitch
+
+      // android-specific settings
+      if (Platform.isAndroid) {
+        await flutterTts.setSharedInstance(true);
+        print("🤖 Android TTS configured");
+      }
+
+      // iOS-specific settings
+      if (Platform.isIOS) {
+        await flutterTts.setSharedInstance(true);
+        print("🍎 iOS TTS configured");
+      }
+
+      // test voice coaching - quick test message
+      await Future.delayed(Duration(milliseconds: 500)); // wait for init
+      await flutterTts.speak("Voice coaching ready!");
+      print("✅ Voice coaching successfully initialized!");
+
+    } catch (e) {
+      print("⚠️ TTS initialization failed: $e");
+      print("Voice coaching will be disabled");
+    }
   }
 
   Future<void> _speak(String text) async {
-    if (DateTime.now().difference(_lastSpeech).inSeconds < 2) return;
-    _lastSpeech = DateTime.now();
-    await flutterTts.speak(text);
+    try {
+      // avoid spam - but allow important feedback
+      if (DateTime.now().difference(_lastSpeech).inSeconds < 1) return;
+      _lastSpeech = DateTime.now();
+
+      print("🗣️ Speaking: $text"); // debug output
+      await flutterTts.speak(text);
+    } catch (e) {
+      print("❌ Speech failed: $e");
+    }
+  }
+
+  // NEU: Smart voice coaching - only speak when needed
+  Future<void> _smartSpeak(String text, String feedbackType) async {
+    try {
+      // prevent repetitive praise for consecutive good reps
+      if (feedbackType == "good" && _consecutiveGoodReps > 1) {
+        // only speak every 3rd good rep after the first
+        if (_consecutiveGoodReps % 3 != 0) return;
+      }
+
+      // prevent repetitive error messages
+      if (feedbackType == "error" && _consecutiveMistakes > 2) {
+        // limit error messages after too many mistakes
+        if (_consecutiveMistakes % 4 != 0) return;
+      }
+
+      // avoid saying the same thing twice in a row
+      if (_lastFeedbackType == feedbackType &&
+          DateTime.now().difference(_lastSpeech).inSeconds < 3) return;
+
+      _lastFeedbackType = feedbackType;
+      await _speak(text);
+    } catch (e) {
+      print("❌ Smart speech failed: $e");
+    }
   }
 
   Future<void> _initializeCamera() async {
@@ -757,7 +821,7 @@ class _WorkoutScreenState extends State<WorkoutScreen>
       if (poses.isNotEmpty) {
         final pose = poses.first;
         
-        // Check if pose has minimum required landmarks
+        // check if pose has minimum required landmarks
         bool hasValidPose = _validatePoseQuality(pose);
         if (!hasValidPose) {
           _customPaint = null;
@@ -768,6 +832,7 @@ class _WorkoutScreenState extends State<WorkoutScreen>
           return;
         }
 
+        // analyze different exercises - each hat different requirements
         switch (widget.exerciseType) {
           case ExerciseType.squat: _analyzeSquat(pose); break;
           case ExerciseType.pushUp: _analyzePushUp(pose); break;
@@ -775,11 +840,13 @@ class _WorkoutScreenState extends State<WorkoutScreen>
           case ExerciseType.bicepCurl: _analyzeBicepCurl(pose); break;
         }
         
+        // draw the pose overlay wenn detection successful
         if (mounted) {
           final painter = PosePainter(pose, image.width.toDouble(), image.height.toDouble(), _controller!.description.lensDirection);
           _customPaint = CustomPaint(painter: painter);
         }
       } else {
+        // no pose detected
         _customPaint = null;
         _feedback = "Not visible";
         _feedbackColor = Colors.redAccent;
@@ -794,14 +861,14 @@ class _WorkoutScreenState extends State<WorkoutScreen>
     }
   }
 
-  // Validate pose quality for better detection reliability
+  // validate pose quality for better detection reliability
   bool _validatePoseQuality(Pose pose) {
-    // Für Bicep Curls benötigen wir andere Landmarks als für Squats
+    // für bicep curls brauchen wir andere landmarks als für squats
     List<PoseLandmarkType> requiredLandmarks = [];
 
     switch (widget.exerciseType) {
       case ExerciseType.bicepCurl:
-        // Für Bicep Curls sind Arme wichtiger als Hüfte
+        // für bicep curls sind arms wichtiger als hips
         requiredLandmarks = [
           PoseLandmarkType.leftShoulder,
           PoseLandmarkType.rightShoulder,
@@ -840,14 +907,14 @@ class _WorkoutScreenState extends State<WorkoutScreen>
     return validLandmarks >= (requiredLandmarks.length * 0.6).ceil();
   }
 
-  // --- 1. SQUAT (OPTIMIZED FOR ANDROID) ---
+  // --- 1. SQUAT (OPTIMIZED FOR ANDROID) mit enhanced voice coaching ---
   void _analyzeSquat(Pose pose) {
     final hip = pose.landmarks[PoseLandmarkType.leftHip];
     final knee = pose.landmarks[PoseLandmarkType.leftKnee];
     final ankle = pose.landmarks[PoseLandmarkType.leftAnkle];
     if (hip == null || knee == null || ankle == null) return;
 
-    // Lowered likelihood threshold for Android compatibility
+    // lowered likelihood threshold for Android compatibility
     if (hip.likelihood < 0.3 || knee.likelihood < 0.3 || ankle.likelihood < 0.3) return;
 
     double angle = _calculateAngle(hip, knee, ankle);
@@ -862,22 +929,28 @@ class _WorkoutScreenState extends State<WorkoutScreen>
         _lastRepTime = DateTime.now();
 
         final duration = DateTime.now().difference(_repStartTime);
-        if (duration.inMilliseconds < 1200) { // Slightly more lenient timing
+        if (duration.inMilliseconds < 1200) { // slightly more lenient timing
            setState(() => _mistakes++);
+           _consecutiveMistakes++;
+           _consecutiveGoodReps = 0; // reset good reps counter
            _feedback = "TOO FAST!";
            _feedbackColor = Colors.redAccent;
-           _speak("Slow down");
-        } 
-        else if (_minAngle < 95) { // Slightly more lenient depth
+           _smartSpeak("Slow down, control the movement", "error"); // smart voice feedback
+        }
+        else if (_minAngle < 95) { // slightly more lenient depth
           setState(() => _reps++);
-          _feedback = "PERFECT!";
+          _consecutiveGoodReps++;
+          _consecutiveMistakes = 0; // reset mistakes counter
+          _feedback = "PERFECT SQUAT!";
           _feedbackColor = Colors.greenAccent;
-          _speak("Good");
+          _smartSpeak("Excellent form!", "good"); // only says it first time, then every 3rd
         } else {
           setState(() => _mistakes++);
+          _consecutiveMistakes++;
+          _consecutiveGoodReps = 0;
           _feedback = "TOO SHALLOW!";
           _feedbackColor = Colors.redAccent;
-          _speak("Go lower");
+          _smartSpeak("Go deeper, full range of motion", "error"); // detailed instruction
         }
       }
       _stage = "up";
@@ -887,10 +960,11 @@ class _WorkoutScreenState extends State<WorkoutScreen>
         _stage = "down";
         _minAngle = angle;
         _repStartTime = DateTime.now(); 
+        _speak("Going down, nice and controlled"); // coaching during movement
       }
-      if (angle < 95) { // Updated threshold
-        _feedback = "UP!";
-        _feedbackColor = Colors.blueAccent;
+      if (angle < 95) { // updated threshold
+        _feedback = "PERFECT DEPTH!";
+        _feedbackColor = Colors.greenAccent;
       } else {
         _feedback = "LOWER...";
         _feedbackColor = Colors.orangeAccent;
@@ -898,7 +972,7 @@ class _WorkoutScreenState extends State<WorkoutScreen>
     }
   }
 
-  // --- 2. PUSH-UP (Smart Mode) ---
+  // --- 2. PUSH-UP (Smart Mode) - enhanced detection für better form checking ---
 void _analyzePushUp(Pose pose) {
   final shoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
   final hip = pose.landmarks[PoseLandmarkType.leftHip];
@@ -909,15 +983,14 @@ void _analyzePushUp(Pose pose) {
 
   final DateTime now = DateTime.now();
 
-  // ===== PARAMETER =====
-  const double minDownAngle = 95;     // tiefer runter
-  const double minUpAngle = 155;      // oben fast ganz strecken
-  const int minRepTimeMs = 700;       // nicht zu schnell
-  const double postureMin = 150;      // Körper gerader
+  // push-up parameters - these control what counts as good form
+  const double minDownAngle = 95;     // how low must user go
+  const double minUpAngle = 155;      // how high for full extension
+  const int minRepTimeMs = 700;       // minimum time per rep - too fast ist bad
+  const double postureMin = 150;      // body straightness range
   const double postureMax = 215;
-  // ====================
 
-  // Lage-Check (wirklich am Boden)
+  // position check - make sure user ist actually on floor
   double diffY = (shoulder.y - hip.y).abs();
   double diffX = (shoulder.x - hip.x).abs();
   if (diffY > diffX * 1.2) {
@@ -928,9 +1001,9 @@ void _analyzePushUp(Pose pose) {
 
   double armAngle = _calculateAngle(shoulder, elbow, wrist);
   double bodyAngle = _calculateAngle(shoulder, hip, knee);
-  bool badPosture = bodyAngle < postureMin || bodyAngle > postureMax;
+  bool badPosture = bodyAngle < postureMin || bodyAngle > postureMax; // body not straight
 
-  // Startposition (unten)
+  // start position - user is down
   if (armAngle < minDownAngle) {
     _stage = "down";
     _repStartTime = now;
@@ -939,20 +1012,24 @@ void _analyzePushUp(Pose pose) {
     return;
   }
 
-  // Endposition (oben)
+  // end position - user pushed up
   if (_stage == "down" && armAngle > minUpAngle) {
     final int repTime = now.difference(_repStartTime).inMilliseconds;
     _stage = "up";
     _lastRepTime = now;
 
+    // check if too fast - quality over speed
     if (repTime < minRepTimeMs) {
       setState(() => _mistakes++);
+      _consecutiveMistakes++;
+      _consecutiveGoodReps = 0;
       _feedback = "TOO FAST";
       _feedbackColor = Colors.redAccent;
-      _speak("Slow down");
+      _smartSpeak("Slow down", "error"); // concise error message
       return;
     }
 
+    // check posture during rep
     if (badPosture) {
       setState(() => _mistakes++);
       _feedback = "BAD FORM";
@@ -1093,9 +1170,11 @@ void _analyzeBicepCurl(Pose pose) {
 
       if (shoulderShift > shoulderScale * shoulderShiftTolerance) {
         setState(() => _mistakes++);
+        _consecutiveMistakes++;
+        _consecutiveGoodReps = 0;
         _feedback = "DON'T LIFT SHOULDERS!";
         _feedbackColor = Colors.redAccent;
-        _speak("Keep shoulders down");
+        _smartSpeak("Keep shoulders down", "error"); // concise error message
         return;
       }
     }
@@ -1108,18 +1187,30 @@ void _analyzeBicepCurl(Pose pose) {
       if (shoulderScale > 0 && shoulderHeightDiff > shoulderScale * shoulderLevelTolerance) {
         _feedback = "LEVEL SHOULDERS (${angle.toInt()}°)";
         _feedbackColor = Colors.orangeAccent;
+        _speak("Keep both shoulders level"); // voice guidance
         return;
       }
     }
 
-    // Standard Schwung-Check
+    // Standard Schwung-Check mit enhanced voice feedback
     if (bodyScale > 0 && swingDistance > bodyScale * swingFactor) {
       _feedback = "EASY ON SWING (${angle.toInt()}°)";
       _feedbackColor = Colors.orangeAccent;
+      _speak("Less body movement, isolate your biceps"); // detailed instruction
       return;
     }
 
-    // Form-Feedback basierend auf Winkel
+    // Form-Feedback basierend auf Winkel mit voice coaching
+    if (angle > formCheckAngle) {
+      _feedback = "CURL MORE (${angle.toInt()}°)";
+      _feedbackColor = Colors.blueAccent;
+      if (DateTime.now().difference(_lastSpeech).inSeconds > 3) {
+        _speak("Bring the weight up higher"); // coaching guidance
+      }
+    } else {
+      _feedback = "GREAT FORM! (${angle.toInt()}°)";
+      _feedbackColor = Colors.greenAccent;
+    }
     if (angle > formCheckAngle) {
       _feedback = "CURL MORE (${angle.toInt()}°)";
       _feedbackColor = Colors.blueAccent;
@@ -1137,7 +1228,7 @@ void _analyzeBicepCurl(Pose pose) {
     _stage = "up";
     _lastRepTime = now;
 
-    // FINALE Schulter-Überprüfung vor Rep-Zählung
+    // FINALE Schulter-Überprüfung vor Rep-Zählung mit voice feedback
     if (_startShoulderY != null) {
       final double finalShoulderShift = (_startShoulderY! - shoulder.y).abs();
       final double bodyScale = (shoulder.y - elbow.y).abs();
@@ -1145,35 +1236,43 @@ void _analyzeBicepCurl(Pose pose) {
 
       if (finalShoulderShift > shoulderScale * shoulderShiftTolerance) {
         setState(() => _mistakes++);
+        _consecutiveMistakes++;
+        _consecutiveGoodReps = 0; // reset good streak
         _feedback = "SHOULDER ERROR!";
         _feedbackColor = Colors.redAccent;
-        _speak("No shoulder lifting");
+        _smartSpeak("Keep your shoulders down and stable", "error"); // smart error feedback
         return;
       }
     }
 
-    // Timing-Bewertung (sehr entspannt)
+    // Timing-Bewertung mit enhanced voice coaching
     if (repTime < minRepTimeMs) {
       setState(() => _reps++);
+      _consecutiveGoodReps++;
+      _consecutiveMistakes = 0;
       _feedback = "GOOD CURL! (quick)";
       _feedbackColor = Colors.lightGreenAccent;
-      _speak("Good");
+      _smartSpeak("Nice rep, good speed!", "good"); // only first time dann every 3rd
       return;
     }
 
     if (repTime > maxRepTimeMs) {
       setState(() => _reps++);
-      _feedback = "GOOD CURL! (slow)";
+      _consecutiveGoodReps++;
+      _consecutiveMistakes = 0;
+      _feedback = "GOOD CURL! (controlled)";
       _feedbackColor = Colors.lightGreenAccent;
-      _speak("Good");
+      _smartSpeak("Perfect control, well done!", "good"); // controlled praise
       return;
     }
 
-    // ✅ PERFEKTES REP
+    // ✅ PERFEKTES REP mit smart enthusiastic voice coaching
     setState(() => _reps++);
+    _consecutiveGoodReps++;
+    _consecutiveMistakes = 0;
     _feedback = "EXCELLENT CURL!";
     _feedbackColor = Colors.greenAccent;
-    _speak("Perfect");
+    _smartSpeak("Outstanding form! That's perfect!", "good"); // enthusiastic aber not every time
   }
 }
 
@@ -1310,6 +1409,14 @@ Future<void> _finishWorkout() async {
       appBar: AppBar(
         title: Text(title),
         actions: [
+          // Voice Test Button - zum testen ob TTS funktioniert
+          IconButton(
+            icon: const Icon(Icons.volume_up, color: Colors.blueAccent),
+            onPressed: () async {
+              await _speak("Voice coaching test! Can you hear me?");
+            },
+            tooltip: "Test Voice Coaching",
+          ),
           IconButton(
             icon: const Icon(Icons.switch_camera),
             onPressed: _switchCamera,
