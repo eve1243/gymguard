@@ -23,6 +23,7 @@ dependencies:
   vector_math: ^2.1.4
   permission_handler: ^11.3.0
 
+
   # 🔊 Voice & Utils
   flutter_tts: ^3.8.3
   intl: ^0.19.0

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:convert';
 import 'services/secure_user_storage.dart';
 import 'models/user_profile.dart';
+import 'ai_movement_analyzer.dart'; // AI-Bewegungsanalyse
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
@@ -633,9 +634,12 @@ class _WorkoutScreenState extends State<WorkoutScreen>
   bool _isPaused = false;
   int _cameraIndex = 1;
 
-  // 🔴 USER / STORAGE (NEU)
   late UserProfile _currentUser;
   final SecureUserStorage _secureStorage = SecureUserStorage();
+
+  // NEU: AI Movement Analyzer
+  final AIMovementAnalyzer _aiAnalyzer = AIMovementAnalyzer();
+  bool _aiEnabled = false;
 
   // Logic Variables
   int _reps = 0;
@@ -645,6 +649,7 @@ class _WorkoutScreenState extends State<WorkoutScreen>
   String _stage = "start";
   double _minAngle = 180.0;
   double _startShoulderX = 0.0;
+  double? _startShoulderY; // NEU: Für Schulter-Höhen-Tracking
   DateTime _repStartTime = DateTime.now();
 
   // Logic helpers
@@ -656,19 +661,32 @@ class _WorkoutScreenState extends State<WorkoutScreen>
   void initState() {
     super.initState();
 
-    _currentUser = widget.currentUser; // 🔴 WICHTIG
+    _currentUser = widget.currentUser;
 
     WidgetsBinding.instance.addObserver(this);
     _initializeCamera();
     _initTTS();
+    _initializeAI(); // NEU: AI-System starten
 
     // Optimize pose detector for Android performance
     final options = PoseDetectorOptions(
       mode: PoseDetectionMode.stream,
-      // Enable pose classification for better accuracy on Android
-      // but keep it lightweight
     );
     _poseDetector = PoseDetector(options: options);
+  }
+
+  // NEU: AI-System Initialisierung
+  Future<void> _initializeAI() async {
+    print("🤖 Initialisiere AI Movement Analysis...");
+    _aiEnabled = await _aiAnalyzer.initialize();
+    if (_aiEnabled) {
+      print("✅ AI erfolgreich aktiviert!");
+      if (mounted) {
+        setState(() {});
+      }
+    } else {
+      print("⚠️  AI nicht verfügbar, verwende Regel-basierte Analyse");
+    }
   }
 
   Future<void> _initTTS() async {
@@ -778,20 +796,48 @@ class _WorkoutScreenState extends State<WorkoutScreen>
 
   // Validate pose quality for better detection reliability
   bool _validatePoseQuality(Pose pose) {
-    final requiredLandmarks = [
-      PoseLandmarkType.leftShoulder,
-      PoseLandmarkType.rightShoulder,
-      PoseLandmarkType.leftHip,
-      PoseLandmarkType.rightHip,
-    ];
+    // Für Bicep Curls benötigen wir andere Landmarks als für Squats
+    List<PoseLandmarkType> requiredLandmarks = [];
 
+    switch (widget.exerciseType) {
+      case ExerciseType.bicepCurl:
+        // Für Bicep Curls sind Arme wichtiger als Hüfte
+        requiredLandmarks = [
+          PoseLandmarkType.leftShoulder,
+          PoseLandmarkType.rightShoulder,
+          PoseLandmarkType.leftElbow,
+          PoseLandmarkType.leftWrist,
+        ];
+        break;
+      case ExerciseType.overheadPress:
+        // Für Overhead Press brauchen wir Kopf + Arme
+        requiredLandmarks = [
+          PoseLandmarkType.nose, // Kopf für bessere Erkennung
+          PoseLandmarkType.leftShoulder,
+          PoseLandmarkType.rightShoulder,
+          PoseLandmarkType.leftElbow,
+        ];
+        break;
+      default:
+        // Standard für Squats und Push-ups
+        requiredLandmarks = [
+          PoseLandmarkType.leftShoulder,
+          PoseLandmarkType.rightShoulder,
+          PoseLandmarkType.leftHip,
+          PoseLandmarkType.rightHip,
+        ];
+    }
+
+    int validLandmarks = 0;
     for (final landmark in requiredLandmarks) {
       final point = pose.landmarks[landmark];
-      if (point == null || point.likelihood < 0.3) { // Lowered threshold for Android
-        return false;
+      if (point != null && point.likelihood > 0.2) { // Noch niedriger für Android
+        validLandmarks++;
       }
     }
-    return true;
+
+    // Erlaube Erkennung wenn mindestens 60% der Landmarks erkannt werden
+    return validLandmarks >= (requiredLandmarks.length * 0.6).ceil();
   }
 
   // --- 1. SQUAT (OPTIMIZED FOR ANDROID) ---
@@ -985,72 +1031,149 @@ void _analyzeOverheadPress(Pose pose) {
   }
 }
 
-  // --- 4. BICEP CURL (Balanced) ---
+  // --- 4. BICEP CURL (ENHANCED WITH SHOULDER TRACKING) ---
 void _analyzeBicepCurl(Pose pose) {
   final shoulder = pose.landmarks[PoseLandmarkType.leftShoulder];
   final elbow = pose.landmarks[PoseLandmarkType.leftElbow];
   final wrist = pose.landmarks[PoseLandmarkType.leftWrist];
+  final ear = pose.landmarks[PoseLandmarkType.leftEar];  // Für Schulter-Position
+  final rightShoulder = pose.landmarks[PoseLandmarkType.rightShoulder];
+
+  // Niedrigere Schwellenwerte für Android
   if (shoulder == null || elbow == null || wrist == null) return;
+  if (shoulder.likelihood < 0.2 || elbow.likelihood < 0.2 || wrist.likelihood < 0.2) return;
 
   final double angle = _calculateAngle(shoulder, elbow, wrist);
   final DateTime now = DateTime.now();
 
-  // ===== PARAMETER (HIER KANNST DU FEINTUNEN) =====
-  const int minRepTimeMs = 900;   // zu schnell darunter ❌
-  const int maxRepTimeMs = 2500;  // zu langsam darüber ❌
-  const double downAngle = 155;   // Arm fast gestreckt
-  const double upAngle = 60;      // Arm klar gebeugt
-  const double swingFactor = 0.30; // Schwung-Toleranz
-  // ===============================================
+  // ===== ENHANCED PARAMETERS WITH SHOULDER TRACKING =====
+  const int minRepTimeMs = 600;    // Mindestzeit für Rep (entspannt)
+  const int maxRepTimeMs = 5000;   // Maximale Zeit (sehr großzügig)
+  const double downAngle = 130;    // Startposition (entspannter)
+  const double upAngle = 90;       // Endposition (realistischer)
+  const double swingFactor = 0.60; // Mehr Bewegungsfreiheit
+  const double formCheckAngle = 110; // Schwelle für Formkontrolle
 
-  // Startposition (unten)
+  // NEU: Schulter-Position Tracking
+  const double shoulderShiftTolerance = 0.15; // Erlaubte Schulter-Bewegung
+  const double shoulderLevelTolerance = 0.10;  // Schulter-Höhen-Toleranz
+  // =========================================================
+
+  // NEU: Schulter-Position beim Start speichern
   if (angle > downAngle) {
-    _stage = "down";
-    _startShoulderX = shoulder.x;
-    _repStartTime = now;
+    if (_stage != "down") {
+      _stage = "down";
+      _startShoulderX = shoulder.x;
+      _repStartTime = now;
+
+      // NEU: Speichere Start-Schulterposition für Vergleich
+      if (ear != null && ear.likelihood > 0.2) {
+        // Verwende Ohr als Referenzpunkt für Schulter-Höhe
+        _startShoulderY = shoulder.y;
+      } else if (rightShoulder != null && rightShoulder.likelihood > 0.2) {
+        // Alternative: Verwende andere Schulter als Referenz
+        _startShoulderY = shoulder.y;
+      }
+
+      _feedback = "START CURL (${angle.toInt()}°)";
+      _feedbackColor = Colors.greenAccent;
+    }
     return;
   }
 
-  // Während Bewegung: Schwung prüfen
+  // Während der Bewegung: Erweiterte Form-Checks
   if (_stage == "down" && angle < downAngle && angle > upAngle) {
     final double bodyScale = (shoulder.y - elbow.y).abs();
-    if ((shoulder.x - _startShoulderX).abs() > bodyScale * swingFactor) {
-      _feedback = "DON'T SWING";
-      _feedbackColor = Colors.redAccent;
+    final double swingDistance = (shoulder.x - _startShoulderX).abs();
+
+    // NEU: Schulter-Shrugging Check (Shoulder Up Detection)
+    if (_startShoulderY != null) {
+      final double shoulderShift = (_startShoulderY! - shoulder.y).abs();
+      final double shoulderScale = bodyScale > 0 ? bodyScale : 100.0; // Fallback
+
+      if (shoulderShift > shoulderScale * shoulderShiftTolerance) {
+        setState(() => _mistakes++);
+        _feedback = "DON'T LIFT SHOULDERS!";
+        _feedbackColor = Colors.redAccent;
+        _speak("Keep shoulders down");
+        return;
+      }
+    }
+
+    // Schulter-Level Check (eine Schulter höher als die andere)
+    if (rightShoulder != null && rightShoulder.likelihood > 0.2) {
+      final double shoulderHeightDiff = (shoulder.y - rightShoulder.y).abs();
+      final double shoulderScale = (shoulder.x - rightShoulder.x).abs();
+
+      if (shoulderScale > 0 && shoulderHeightDiff > shoulderScale * shoulderLevelTolerance) {
+        _feedback = "LEVEL SHOULDERS (${angle.toInt()}°)";
+        _feedbackColor = Colors.orangeAccent;
+        return;
+      }
+    }
+
+    // Standard Schwung-Check
+    if (bodyScale > 0 && swingDistance > bodyScale * swingFactor) {
+      _feedback = "EASY ON SWING (${angle.toInt()}°)";
+      _feedbackColor = Colors.orangeAccent;
       return;
     }
+
+    // Form-Feedback basierend auf Winkel
+    if (angle > formCheckAngle) {
+      _feedback = "CURL MORE (${angle.toInt()}°)";
+      _feedbackColor = Colors.blueAccent;
+    } else {
+      _feedback = "GREAT FORM! (${angle.toInt()}°)";
+      _feedbackColor = Colors.greenAccent;
+    }
+    return;
   }
 
-  // Endposition (oben)
-  if (_stage == "down" && angle < upAngle) {
+  // Endposition erreicht (erfolgreiches Rep)
+  if (_stage == "down" && angle <= upAngle) {
     final int repTime = now.difference(_repStartTime).inMilliseconds;
 
     _stage = "up";
     _lastRepTime = now;
 
-    // ❌ ZU SCHNELL
+    // FINALE Schulter-Überprüfung vor Rep-Zählung
+    if (_startShoulderY != null) {
+      final double finalShoulderShift = (_startShoulderY! - shoulder.y).abs();
+      final double bodyScale = (shoulder.y - elbow.y).abs();
+      final double shoulderScale = bodyScale > 0 ? bodyScale : 100.0;
+
+      if (finalShoulderShift > shoulderScale * shoulderShiftTolerance) {
+        setState(() => _mistakes++);
+        _feedback = "SHOULDER ERROR!";
+        _feedbackColor = Colors.redAccent;
+        _speak("No shoulder lifting");
+        return;
+      }
+    }
+
+    // Timing-Bewertung (sehr entspannt)
     if (repTime < minRepTimeMs) {
-      setState(() => _mistakes++);
-      _feedback = "TOO FAST";
-      _feedbackColor = Colors.redAccent;
-      _speak("Too fast");
+      setState(() => _reps++);
+      _feedback = "GOOD CURL! (quick)";
+      _feedbackColor = Colors.lightGreenAccent;
+      _speak("Good");
       return;
     }
 
-    // ❌ ZU LANGSAM
     if (repTime > maxRepTimeMs) {
-      setState(() => _mistakes++);
-      _feedback = "TOO SLOW";
-      _feedbackColor = Colors.orangeAccent;
-      _speak("Faster");
+      setState(() => _reps++);
+      _feedback = "GOOD CURL! (slow)";
+      _feedbackColor = Colors.lightGreenAccent;
+      _speak("Good");
       return;
     }
 
-    // ✅ SAUBERER REP
+    // ✅ PERFEKTES REP
     setState(() => _reps++);
-    _feedback = "GOOD REP";
+    _feedback = "EXCELLENT CURL!";
     _feedbackColor = Colors.greenAccent;
-    _speak("Good");
+    _speak("Perfect");
   }
 }
 
@@ -1374,22 +1497,46 @@ class PosePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()..style = PaintingStyle.stroke..strokeWidth = 4.0..color = Colors.greenAccent;
+    final headPaint = Paint()..style = PaintingStyle.fill..color = Colors.yellowAccent;
     final double scaleX = size.width / imageWidth;
     final double scaleY = size.height / imageHeight;
+
+    // Prüfe ob es eine Frontkamera ist und spiegle entsprechend
+    final bool isFrontCamera = lensDirection == CameraLensDirection.front;
 
 void paintLine(PoseLandmarkType type1, PoseLandmarkType type2) {
   final p1 = pose.landmarks[type1];
   final p2 = pose.landmarks[type2];
   if (p1 == null || p2 == null) return;
+  if (p1.likelihood < 0.2 || p2.likelihood < 0.2) return; // Niedrigere Schwelle
 
-  double x1 = p1.x * scaleX;
+  // Bei Frontkamera X-Koordinaten spiegeln
+  double x1 = isFrontCamera ? size.width - (p1.x * scaleX) : p1.x * scaleX;
   double y1 = p1.y * scaleY;
-  double x2 = p2.x * scaleX;
+  double x2 = isFrontCamera ? size.width - (p2.x * scaleX) : p2.x * scaleX;
   double y2 = p2.y * scaleY;
 
   canvas.drawLine(Offset(x1, y1), Offset(x2, y2), paint);
 }
 
+void paintPoint(PoseLandmarkType type, Paint pointPaint, double radius) {
+  final point = pose.landmarks[type];
+  if (point == null || point.likelihood < 0.2) return;
+
+  // Bei Frontkamera X-Koordinate spiegeln
+  double x = isFrontCamera ? size.width - (point.x * scaleX) : point.x * scaleX;
+  double y = point.y * scaleY;
+  canvas.drawCircle(Offset(x, y), radius, pointPaint);
+}
+
+    // Kopf/Gesicht (hilft bei der Erkennung)
+    paintPoint(PoseLandmarkType.nose, headPaint, 8.0);
+    paintPoint(PoseLandmarkType.leftEye, headPaint, 6.0);
+    paintPoint(PoseLandmarkType.rightEye, headPaint, 6.0);
+    paintPoint(PoseLandmarkType.leftEar, headPaint, 6.0);
+    paintPoint(PoseLandmarkType.rightEar, headPaint, 6.0);
+
+    // Körper-Linien
     paintLine(PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder);
     paintLine(PoseLandmarkType.leftShoulder, PoseLandmarkType.leftHip);
     paintLine(PoseLandmarkType.rightShoulder, PoseLandmarkType.rightHip);
@@ -1398,10 +1545,16 @@ void paintLine(PoseLandmarkType type1, PoseLandmarkType type2) {
     paintLine(PoseLandmarkType.leftKnee, PoseLandmarkType.leftAnkle);
     paintLine(PoseLandmarkType.rightHip, PoseLandmarkType.rightKnee);
     paintLine(PoseLandmarkType.rightKnee, PoseLandmarkType.rightAnkle);
+
+    // Arme (wichtig für Bicep Curls)
     paintLine(PoseLandmarkType.leftShoulder, PoseLandmarkType.leftElbow);
     paintLine(PoseLandmarkType.leftElbow, PoseLandmarkType.leftWrist);
     paintLine(PoseLandmarkType.rightShoulder, PoseLandmarkType.rightElbow);
     paintLine(PoseLandmarkType.rightElbow, PoseLandmarkType.rightWrist);
+
+    // Kopf-Linien (für bessere Orientierung)
+    paintLine(PoseLandmarkType.nose, PoseLandmarkType.leftShoulder);
+    paintLine(PoseLandmarkType.nose, PoseLandmarkType.rightShoulder);
   }
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
