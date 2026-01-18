@@ -45,9 +45,9 @@ Im Gegensatz zu herkömmlichen Fitness-Trackern verwendet diese App **Computer V
 - ✅ **Datenverschlüsselung:** Alle Nutzerdaten werden verschlüsselt gespeichert
 
 ### 🟡 SOLL-Kriterien (Größtenteils implementiert)
-- ✅ **Mehrere Kamerawinkel:** Unterstützt verschiedene Aufstellungen
+- ❌ **Mehrere Kamerawinkel:** Unterstützt verschiedene Aufstellungen
 - ✅ **Workout-Zusammenfassungen:** Zeigt Fehlerquote und Rep-Qualität nach dem Training
-- ✅ **Hands-free Modus:** Automatische Erkennung ohne manuelle Eingaben während des Trainings
+- ❌ **Hands-free Modus:** Automatische Erkennung ohne manuelle Eingaben während des Trainings
 
 ### 🔵 KANN-Kriterien (Vollständig implementiert)
 - ✅ **Personalisierte Coaching-Hinweise:** Intelligentes, kontextuelles Feedback
