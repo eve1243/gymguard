@@ -1,4 +1,4 @@
-# GymGuard - Intelligenter KI-Fitness-Trainer 🏋️‍♂️
+# GymGuard - Intelligenter Fitness-Trainer 🏋️‍♂️
 
 **GymGuard** ist eine plattformübergreifende mobile Anwendung (Android/iOS), die als intelligenter, Echtzeit-Personal-Trainer fungiert.
 
